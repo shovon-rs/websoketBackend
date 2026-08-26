@@ -6,6 +6,8 @@ import { registerTokenSchema, unregisterTokenSchema } from './push.schemas';
 
 export const pushRouter = Router();
 
+pushRouter.get('/vapid-public-key', pushController.vapidPublicKey);
+
 pushRouter.use(requireAuth);
 pushRouter.post('/register', validateBody(registerTokenSchema), pushController.registerToken);
 pushRouter.delete('/register', validateBody(unregisterTokenSchema), pushController.unregisterToken);

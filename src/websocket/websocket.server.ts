@@ -10,6 +10,7 @@ import { startHeartbeat } from './heartbeat';
 import { setPresence, clearPresence, refreshPresence } from '../redis/presence';
 import { logger } from '../utils/logger';
 import { wsConnectionsTotal } from '../metrics/prometheus';
+import { env } from '../config/env';
 
 const envelopeSchema = z.object({
   type: z.string().min(1),
@@ -18,11 +19,13 @@ const envelopeSchema = z.object({
   payload: z.unknown(),
 });
 
-const ALLOWED_ORIGINS = (process.env.WS_ALLOWED_ORIGINS ?? '').split(',').filter(Boolean);
+const ALLOWED_ORIGINS = env.ALLOWED_ORIGINS.split(',').map((origin) => origin.trim());
 
 function isOriginAllowed(origin: string | undefined): boolean {
-  if (ALLOWED_ORIGINS.length === 0) return true; // unrestricted unless explicitly configured
-  return !!origin && ALLOWED_ORIGINS.includes(origin);
+  // No Origin header means a non-browser client (native app, server-to-server, load test) —
+  // browsers always send it on a cross-origin WS handshake, so only validate when present.
+  if (!origin) return true;
+  return ALLOWED_ORIGINS.includes(origin);
 }
 
 function extractToken(req: IncomingMessage): string | undefined {

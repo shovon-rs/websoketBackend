@@ -19,7 +19,7 @@ describe('auth flow', () => {
 
     expect(res.status).toBe(201);
     expect(res.body.accessToken).toBeDefined();
-    expect(res.body.refreshToken).toBeDefined();
+    expect(res.headers['set-cookie']?.[0]).toMatch(/^refreshToken=.*HttpOnly/);
   });
 
   it('logs in with valid credentials', async () => {

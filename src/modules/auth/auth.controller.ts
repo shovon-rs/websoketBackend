@@ -1,14 +1,33 @@
 import { Request, Response } from 'express';
 import { prisma } from '../../config/database';
+import { env } from '../../config/env';
 import {
   hashPassword,
   issueTokenPair,
+  refreshTokenTtlMs,
   revokeRefreshToken,
   rotateRefreshToken,
   verifyPassword,
 } from '../../services/auth.service';
 import { LoginInput, RegisterInput } from './auth.schemas';
 import { logger } from '../../utils/logger';
+
+const REFRESH_COOKIE_NAME = 'refreshToken';
+const REFRESH_COOKIE_PATH = '/api/auth';
+
+function setRefreshCookie(res: Response, token: string): void {
+  res.cookie(REFRESH_COOKIE_NAME, token, {
+    httpOnly: true,
+    secure: env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: REFRESH_COOKIE_PATH,
+    maxAge: refreshTokenTtlMs(),
+  });
+}
+
+function clearRefreshCookie(res: Response): void {
+  res.clearCookie(REFRESH_COOKIE_NAME, { path: REFRESH_COOKIE_PATH });
+}
 
 export async function register(req: Request<unknown, unknown, RegisterInput>, res: Response): Promise<void> {
   const { email, password, displayName } = req.body;
@@ -23,9 +42,10 @@ export async function register(req: Request<unknown, unknown, RegisterInput>, re
     data: { email, displayName, passwordHash: await hashPassword(password) },
   });
 
-  const tokens = await issueTokenPair({ id: user.id, email: user.email, role: user.role });
+  const { accessToken, refreshToken } = await issueTokenPair({ id: user.id, email: user.email, role: user.role });
+  setRefreshCookie(res, refreshToken);
   logger.info({ userId: user.id }, 'User registered');
-  res.status(201).json({ user: { id: user.id, email: user.email, displayName: user.displayName }, ...tokens });
+  res.status(201).json({ user: { id: user.id, email: user.email, displayName: user.displayName }, accessToken });
 }
 
 export async function login(req: Request<unknown, unknown, LoginInput>, res: Response): Promise<void> {
@@ -37,21 +57,32 @@ export async function login(req: Request<unknown, unknown, LoginInput>, res: Res
     return;
   }
 
-  const tokens = await issueTokenPair({ id: user.id, email: user.email, role: user.role });
-  res.json({ user: { id: user.id, email: user.email, displayName: user.displayName }, ...tokens });
+  const { accessToken, refreshToken } = await issueTokenPair({ id: user.id, email: user.email, role: user.role });
+  setRefreshCookie(res, refreshToken);
+  res.json({ user: { id: user.id, email: user.email, displayName: user.displayName }, accessToken });
 }
 
 export async function refresh(req: Request, res: Response): Promise<void> {
+  const existingToken = req.cookies?.[REFRESH_COOKIE_NAME];
+  if (!existingToken) {
+    res.status(401).json({ error: { code: 'MISSING_REFRESH_TOKEN', message: 'No refresh token cookie present' } });
+    return;
+  }
+
   try {
-    const tokens = await rotateRefreshToken(req.body.refreshToken);
-    res.json(tokens);
+    const { accessToken, refreshToken } = await rotateRefreshToken(existingToken);
+    setRefreshCookie(res, refreshToken);
+    res.json({ accessToken });
   } catch {
+    clearRefreshCookie(res);
     res.status(401).json({ error: { code: 'INVALID_REFRESH_TOKEN', message: 'Refresh token is invalid or expired' } });
   }
 }
 
 export async function logout(req: Request, res: Response): Promise<void> {
-  await revokeRefreshToken(req.body.refreshToken);
+  const existingToken = req.cookies?.[REFRESH_COOKIE_NAME];
+  if (existingToken) await revokeRefreshToken(existingToken);
+  clearRefreshCookie(res);
   res.status(204).send();
 }
 

@@ -40,9 +40,15 @@ paths:
   /auth/refresh:
     post:
       security: []
-      summary: Exchange a refresh token for a new token pair
+      summary: Exchange the HttpOnly refreshToken cookie for a new access token
       responses:
         '200': { description: Refreshed }
+  /push/vapid-public-key:
+    get:
+      security: []
+      summary: Public VAPID key for Web Push subscription
+      responses:
+        '200': { description: Public key }
   /auth/me:
     get:
       summary: Current user profile
@@ -53,6 +59,39 @@ paths:
       summary: List the caller's conversations
       responses:
         '200': { description: Conversation list }
+    post:
+      summary: Create (or reuse an existing direct) conversation
+      responses:
+        '201': { description: Conversation created }
+  /users:
+    get:
+      summary: Search users by email or display name (excludes the caller)
+      parameters:
+        - name: search
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        '200': { description: User list }
+  /documents:
+    get:
+      summary: List the caller's documents
+      responses:
+        '200': { description: Document list }
+    post:
+      summary: Create a collaborative document
+      responses:
+        '201': { description: Document created }
+  /documents/{id}:
+    get:
+      summary: Fetch a document's current content
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Document }
   /conversations/{id}/messages:
     get:
       summary: Message history, with optional catch-up via `after`

@@ -10,8 +10,35 @@ export async function assertMember(conversationId: string, userId: string): Prom
 export async function listConversations(userId: string) {
   return prisma.conversation.findMany({
     where: { members: { some: { userId } } },
-    include: { members: true },
+    include: {
+      members: { include: { user: { select: { id: true, displayName: true, email: true } } } },
+      messages: { orderBy: { createdAt: 'desc' }, take: 1 },
+    },
     orderBy: { createdAt: 'desc' },
+  });
+}
+
+export async function createConversation(params: { creatorId: string; memberIds: string[]; type: 'direct' | 'group'; name?: string }) {
+  const memberIds = [...new Set([params.creatorId, ...params.memberIds])];
+
+  if (params.type === 'direct' && memberIds.length === 2) {
+    const existing = await prisma.conversation.findFirst({
+      where: {
+        type: 'direct',
+        AND: memberIds.map((userId) => ({ members: { some: { userId } } })),
+      },
+      include: { members: { include: { user: { select: { id: true, displayName: true, email: true } } } } },
+    });
+    if (existing) return existing;
+  }
+
+  return prisma.conversation.create({
+    data: {
+      type: params.type,
+      name: params.name,
+      members: { create: memberIds.map((userId) => ({ userId })) },
+    },
+    include: { members: { include: { user: { select: { id: true, displayName: true, email: true } } } } },
   });
 }
 

@@ -1,6 +1,7 @@
 import 'express-async-errors';
 import express, { Express } from 'express';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import pinoHttp from 'pino-http';
 import swaggerUi from 'swagger-ui-express';
@@ -17,9 +18,12 @@ import { registry } from './metrics/prometheus';
 export function createApp(): Express {
   const app = express();
 
+  const allowedOrigins = env.ALLOWED_ORIGINS.split(',').map((origin) => origin.trim());
+
   app.use(helmet());
-  app.use(cors());
+  app.use(cors({ origin: allowedOrigins, credentials: true }));
   app.use(express.json({ limit: '1mb' }));
+  app.use(cookieParser());
   app.use(pinoHttp({ logger }));
   app.use(metricsMiddleware);
   app.use(restRateLimiter);

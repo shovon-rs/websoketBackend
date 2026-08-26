@@ -1,5 +1,10 @@
 import { Request, Response } from 'express';
 import * as pushTokenRepo from '../../repositories/push-token.repository';
+import { env } from '../../config/env';
+
+export async function vapidPublicKey(_req: Request, res: Response): Promise<void> {
+  res.json({ publicKey: env.VAPID_PUBLIC_KEY ?? null });
+}
 
 export async function registerToken(req: Request, res: Response): Promise<void> {
   const { platform, token, subscription } = req.body;

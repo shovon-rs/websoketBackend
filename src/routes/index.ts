@@ -6,6 +6,8 @@ import { dashboardRouter } from '../modules/dashboard/dashboard.routes';
 import { trackingRouter } from '../modules/tracking/tracking.routes';
 import { callsRouter } from '../modules/calling/calls.routes';
 import { pushRouter } from '../modules/push/push.routes';
+import { usersRouter } from '../modules/users/users.routes';
+import { documentsRouter } from '../modules/collaboration/documents.routes';
 
 export const apiRouter = Router();
 
@@ -16,3 +18,5 @@ apiRouter.use('/dashboard', dashboardRouter);
 apiRouter.use('/tracking', trackingRouter);
 apiRouter.use('/calls', callsRouter);
 apiRouter.use('/push', pushRouter);
+apiRouter.use('/users', usersRouter);
+apiRouter.use('/documents', documentsRouter);

@@ -90,6 +90,20 @@ Edit `src/database/prisma/schema.prisma`, then run `npm run prisma:migrate`
 migrations. Regenerate the client with `npm run prisma:generate` after
 pulling schema changes from elsewhere.
 
+## Auth: cookie-based refresh tokens
+
+`POST /api/auth/register` and `/login` set the refresh token as an
+`HttpOnly`, `SameSite=Lax` cookie scoped to `/api/auth` (see
+`auth.controller.ts`) and return only `{ user, accessToken }` in the body —
+the refresh token is never exposed to JS. `/api/auth/refresh` and
+`/api/auth/logout` read that cookie instead of a request body. This exists to
+match the frontend's stated security model (`relay-frontend` skill: "keep
+access tokens in memory, use an HttpOnly refresh cookie"). `ALLOWED_ORIGINS`
+(env, comma-separated) drives both `cors({ credentials: true })` in `app.ts`
+and the WebSocket upgrade's Origin check in `websocket.server.ts` — keep it
+in sync with wherever the frontend is actually served from, or cookies and
+the WS handshake will silently fail cross-origin.
+
 ## Conventions worth preserving
 
 - **At-least-once delivery for chat**: persist to Postgres *before*

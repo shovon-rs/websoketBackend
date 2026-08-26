@@ -31,12 +31,16 @@ export function verifyAccessToken(token: string): AuthenticatedUser {
   return { id: decoded.sub as string, email: decoded.email, role: decoded.role };
 }
 
-function refreshExpiryDate(): Date {
+export function refreshTokenTtlMs(): number {
   const match = env.JWT_REFRESH_EXPIRES.match(/^(\d+)([dhm])$/);
   const amount = match ? Number(match[1]) : 7;
   const unit = match ? match[2] : 'd';
   const msPerUnit = unit === 'd' ? 86_400_000 : unit === 'h' ? 3_600_000 : 60_000;
-  return new Date(Date.now() + amount * msPerUnit);
+  return amount * msPerUnit;
+}
+
+function refreshExpiryDate(): Date {
+  return new Date(Date.now() + refreshTokenTtlMs());
 }
 
 export async function issueTokenPair(user: AuthenticatedUser): Promise<TokenPair> {

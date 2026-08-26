@@ -12,6 +12,9 @@ const envSchema = z.object({
 
   REDIS_URL: z.string().default('redis://localhost:6379'),
 
+  // Comma-separated list of origins allowed for both CORS (REST) and the WebSocket upgrade.
+  ALLOWED_ORIGINS: z.string().default('http://localhost:3001'),
+
   JWT_SECRET: z.string().min(1),
   JWT_ACCESS_EXPIRES: z.string().default('15m'),
   JWT_REFRESH_EXPIRES: z.string().default('7d'),
