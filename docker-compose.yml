@@ -1,0 +1,31 @@
+version: '3.9'
+services:
+  app:
+    build: .
+    ports: ['3000:3000']
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/realtime_dev
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=dev-secret-change-me
+    depends_on: [postgres, redis]
+    volumes: ['./src:/app/src']
+
+  postgres:
+    image: postgres:16
+    environment: { POSTGRES_PASSWORD: postgres, POSTGRES_DB: realtime_dev }
+    ports: ['5432:5432']
+    volumes: ['postgres_data:/var/lib/postgresql/data']
+
+  redis:
+    image: redis:7
+    ports: ['6379:6379']
+
+  minio:
+    image: minio/minio
+    command: server /data --console-address ":9001"
+    ports: ['9000:9000', '9001:9001']
+    environment: { MINIO_ROOT_USER: minioadmin, MINIO_ROOT_PASSWORD: minioadmin }
+
+volumes:
+  postgres_data:

@@ -1,0 +1,225 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String   @id @default(uuid())
+  email         String   @unique
+  passwordHash  String
+  displayName   String
+  role          String   @default("user")
+  createdAt     DateTime @default(now())
+
+  refreshTokens        RefreshToken[]
+  pushTokens           PushToken[]
+  trackingSessions     TrackingSession[]
+  conversationMembers  ConversationMember[]
+  messages             Message[]
+  notifications        Notification[]
+  initiatedCalls       Call[]                @relation("CallInitiator")
+  callParticipants     CallParticipant[]
+  documentVersions     DocumentVersion[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  revokedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model Conversation {
+  id        String   @id @default(uuid())
+  type      String   // 'direct' | 'group'
+  name      String?
+  createdAt DateTime @default(now())
+
+  members  ConversationMember[]
+  messages Message[]
+
+  @@map("conversations")
+}
+
+model ConversationMember {
+  id             String   @id @default(uuid())
+  conversationId String
+  userId         String
+  joinedAt       DateTime @default(now())
+  lastReadAt     DateTime?
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, userId])
+  @@index([userId])
+  @@map("conversation_members")
+}
+
+model Message {
+  id             String   @id @default(uuid())
+  conversationId String
+  senderId       String
+  content        String
+  eventId        String   @unique
+  status         String   @default("sent") // sent | delivered | read
+  createdAt      DateTime @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       User         @relation(fields: [senderId], references: [id])
+
+  @@index([conversationId, createdAt])
+  @@map("messages")
+}
+
+model Notification {
+  id        String    @id @default(uuid())
+  userId    String
+  type      String    // info | success | warning | error
+  title     String
+  body      String
+  data      Json?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("notifications")
+}
+
+model Document {
+  id        String   @id @default(uuid())
+  ownerId   String
+  title     String
+  content   String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  versions DocumentVersion[]
+
+  @@map("documents")
+}
+
+model DocumentVersion {
+  id         String   @id @default(uuid())
+  documentId String
+  authorId   String
+  content    String
+  createdAt  DateTime @default(now())
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  author   User     @relation(fields: [authorId], references: [id])
+
+  @@index([documentId, createdAt])
+  @@map("document_versions")
+}
+
+model TrackingSession {
+  id        String    @id @default(uuid())
+  userId    String
+  consentAt DateTime
+  startedAt DateTime  @default(now())
+  endedAt   DateTime?
+
+  locations TrackingLocation[]
+  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("tracking_sessions")
+}
+
+model TrackingLocation {
+  id         String   @id @default(uuid())
+  sessionId  String
+  lat        Float
+  lng        Float
+  recordedAt DateTime @default(now())
+
+  session TrackingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, recordedAt])
+  @@map("tracking_locations")
+}
+
+model PushToken {
+  id           String   @id @default(uuid())
+  userId       String
+  platform     String   // 'fcm' | 'apns' | 'web'
+  token        String   @unique
+  subscription Json?
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("push_tokens")
+}
+
+model Call {
+  id          String    @id @default(uuid())
+  type        String    // 'audio' | 'video' | 'group'
+  status      String    // 'ringing' | 'active' | 'ended' | 'missed' | 'rejected'
+  initiatorId String
+  startedAt   DateTime?
+  endedAt     DateTime?
+  createdAt   DateTime  @default(now())
+
+  initiator    User              @relation("CallInitiator", fields: [initiatorId], references: [id])
+  participants CallParticipant[]
+  events       CallEvent[]
+
+  @@map("calls")
+}
+
+model CallParticipant {
+  id       String    @id @default(uuid())
+  callId   String
+  userId   String
+  joinedAt DateTime?
+  leftAt   DateTime?
+  role     String    @default("callee") // caller | callee
+
+  call Call @relation(fields: [callId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([callId, userId])
+  @@map("call_participants")
+}
+
+model CallEvent {
+  id        String   @id @default(uuid())
+  callId    String
+  type      String   // ringing | accept | reject | end | ice-candidate | sdp-offer | sdp-answer
+  createdAt DateTime @default(now())
+
+  call Call @relation(fields: [callId], references: [id], onDelete: Cascade)
+
+  @@index([callId, createdAt])
+  @@map("call_events")
+}
+
+model Attachment {
+  id         String   @id @default(uuid())
+  uploaderId String
+  bucket     String
+  key        String
+  mimeType   String
+  size       Int
+  createdAt  DateTime @default(now())
+
+  @@map("attachments")
+}

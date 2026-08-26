@@ -1,0 +1,133 @@
+openapi: 3.1.0
+info:
+  title: Real-Time Communication Platform API
+  version: 0.1.0
+  description: REST API for the real-time platform backend. WebSocket events are documented separately in backend.md §3.
+servers:
+  - url: /api
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+security:
+  - bearerAuth: []
+paths:
+  /auth/register:
+    post:
+      security: []
+      summary: Create a new user
+      responses:
+        '201': { description: User created }
+  /auth/login:
+    post:
+      security: []
+      summary: Authenticate and receive a token pair
+      responses:
+        '200': { description: Authenticated }
+  /auth/refresh:
+    post:
+      security: []
+      summary: Exchange a refresh token for a new token pair
+      responses:
+        '200': { description: Refreshed }
+  /auth/me:
+    get:
+      summary: Current user profile
+      responses:
+        '200': { description: Current user }
+  /conversations:
+    get:
+      summary: List the caller's conversations
+      responses:
+        '200': { description: Conversation list }
+  /conversations/{id}/messages:
+    get:
+      summary: Message history, with optional catch-up via `after`
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+        - name: after
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        '200': { description: Message list }
+  /notifications:
+    get:
+      summary: Notification history
+      responses:
+        '200': { description: Notification list }
+  /dashboard/summary:
+    get:
+      summary: Initial dashboard snapshot
+      responses:
+        '200': { description: Snapshot }
+  /tracking/sessions:
+    post:
+      summary: Create a tracking session
+      responses:
+        '201': { description: Session created }
+  /tracking/sessions/{id}:
+    get:
+      summary: Tracking session details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Session }
+  /tracking/sessions/{id}/locations:
+    delete:
+      summary: Purge all location history for a session
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Purged }
+  /calls:
+    post:
+      summary: Initiate a call
+      responses:
+        '201': { description: Call created }
+  /calls/{id}:
+    get:
+      summary: Call details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Call }
+  /calls/ice-servers:
+    get:
+      summary: STUN/TURN ICE server configuration
+      responses:
+        '200': { description: ICE servers }
+  /push/register:
+    post:
+      summary: Register a push token (FCM/APNs/Web Push)
+      responses:
+        '201': { description: Registered }
+    delete:
+      summary: Unregister a push token
+      responses:
+        '204': { description: Unregistered }
