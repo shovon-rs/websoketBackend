@@ -4,7 +4,10 @@ import { roomManager } from '../../websocket/room.manager';
 import { buildEvent } from '../../types/ws';
 import { EventDefinition } from '../../websocket/event.types';
 import * as chatService from './chat.service';
+import { dispatchNotification } from '../../services/push-dispatcher.service';
 import { logger } from '../../utils/logger';
+
+const MESSAGE_PREVIEW_LENGTH = 120;
 
 const conversationRoom = (conversationId: string) => `conversation:${conversationId}`;
 
@@ -52,6 +55,29 @@ const send: EventDefinition<z.infer<typeof sendSchema>> = {
         content: message.content,
         createdAt: message.createdAt,
       }, eventId),
+    );
+
+    // Notify every other member — dispatchNotification persists it and delivers over WS if
+    // they're online (any page, not just this conversation), or queues offline push otherwise.
+    const members = await chatService.getMembersWithUser(payload.conversationId);
+    const sender = members.find((m) => m.userId === conn.userId);
+    const others = members.filter((m) => m.userId !== conn.userId);
+    const preview =
+      payload.content.length > MESSAGE_PREVIEW_LENGTH
+        ? `${payload.content.slice(0, MESSAGE_PREVIEW_LENGTH - 1)}…`
+        : payload.content;
+
+    await Promise.all(
+      others.map((member) =>
+        dispatchNotification(member.userId, {
+          type: 'info',
+          title: sender?.user.displayName ?? 'New message',
+          body: preview,
+          data: { conversationId: payload.conversationId, messageId: message.id },
+        }).catch((err) => {
+          logger.warn({ err, userId: member.userId }, 'Failed to dispatch message notification');
+        }),
+      ),
     );
   },
 };

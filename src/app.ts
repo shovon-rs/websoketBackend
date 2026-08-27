@@ -20,6 +20,10 @@ export function createApp(): Express {
 
   const allowedOrigins = env.ALLOWED_ORIGINS.split(',').map((origin) => origin.trim());
 
+  // Railway/Render/etc. terminate TLS at a reverse proxy in front of this process — without this,
+  // Express thinks every request is plain HTTP, which breaks `Secure` cookies (auth refresh token).
+  if (env.NODE_ENV === 'production') app.set('trust proxy', 1);
+
   app.use(helmet());
   app.use(cors({ origin: allowedOrigins, credentials: true }));
   app.use(express.json({ limit: '1mb' }));

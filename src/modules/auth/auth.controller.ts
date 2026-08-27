@@ -15,18 +15,28 @@ import { logger } from '../../utils/logger';
 const REFRESH_COOKIE_NAME = 'refreshToken';
 const REFRESH_COOKIE_PATH = '/api/auth';
 
+// In production the frontend (Vercel) and backend (Railway) are on different registrable
+// domains — that's a cross-site request, and browsers only attach a cookie to one of those
+// if it's `SameSite=None`, which in turn requires `Secure`. Locally, frontend and backend are
+// both on `localhost` (same-site regardless of port), where `Lax` + non-Secure works over plain HTTP.
+const isCrossSiteDeployment = env.NODE_ENV === 'production';
+
 function setRefreshCookie(res: Response, token: string): void {
   res.cookie(REFRESH_COOKIE_NAME, token, {
     httpOnly: true,
-    secure: env.NODE_ENV === 'production',
-    sameSite: 'lax',
+    secure: isCrossSiteDeployment,
+    sameSite: isCrossSiteDeployment ? 'none' : 'lax',
     path: REFRESH_COOKIE_PATH,
     maxAge: refreshTokenTtlMs(),
   });
 }
 
 function clearRefreshCookie(res: Response): void {
-  res.clearCookie(REFRESH_COOKIE_NAME, { path: REFRESH_COOKIE_PATH });
+  res.clearCookie(REFRESH_COOKIE_NAME, {
+    path: REFRESH_COOKIE_PATH,
+    secure: isCrossSiteDeployment,
+    sameSite: isCrossSiteDeployment ? 'none' : 'lax',
+  });
 }
 
 export async function register(req: Request<unknown, unknown, RegisterInput>, res: Response): Promise<void> {

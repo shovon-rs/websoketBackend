@@ -37,7 +37,8 @@ const initiate: EventDefinition<z.infer<typeof initiateSchema>> = {
     );
 
     if (!delivered) {
-      await dispatchNotification(payload.calleeId, 'call:ringing', {
+      await dispatchNotification(payload.calleeId, {
+        type: 'info',
         title: 'Incoming call',
         body: `Incoming ${payload.callType} call`,
         data: { callId: call.id, callerId: conn.userId },

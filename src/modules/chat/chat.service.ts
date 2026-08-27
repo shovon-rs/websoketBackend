@@ -42,6 +42,13 @@ export async function createConversation(params: { creatorId: string; memberIds:
   });
 }
 
+export async function getMembersWithUser(conversationId: string) {
+  return prisma.conversationMember.findMany({
+    where: { conversationId },
+    include: { user: { select: { id: true, displayName: true } } },
+  });
+}
+
 export async function createMessage(params: {
   conversationId: string;
   senderId: string;
