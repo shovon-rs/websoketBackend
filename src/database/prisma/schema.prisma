@@ -15,6 +15,7 @@ model User {
   avatarKey     String?
   role          String   @default("user")
   createdAt     DateTime @default(now())
+  lastSeenAt    DateTime?
 
   refreshTokens        RefreshToken[]
   pushTokens           PushToken[]

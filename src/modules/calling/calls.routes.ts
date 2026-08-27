@@ -8,5 +8,6 @@ export const callsRouter = Router();
 
 callsRouter.use(requireAuth);
 callsRouter.get('/ice-servers', callsController.iceServers);
+callsRouter.get('/', callsController.listCalls);
 callsRouter.post('/', validateBody(createCallSchema), callsController.createCall);
 callsRouter.get('/:id', callsController.getCall);

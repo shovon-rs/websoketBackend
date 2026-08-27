@@ -106,6 +106,26 @@ the WS handshake will silently fail cross-origin.
 
 ## Conventions worth preserving
 
+- **Presence has two layers — don't conflate them**: `redis/presence.ts` is
+  the low-level Redis reads/writes (`presence:{userId}` and
+  `presence:online-since:{userId}`, both TTL'd, refreshed on every heartbeat).
+  `services/presence.service.ts` is what call sites actually use —
+  `markUserOnline`/`touchUserOnline`/`markUserOffline` — and it's the only
+  place that also writes `User.lastSeenAt` in Postgres (on the *last* socket
+  closing, not every disconnect — checked via `connectionManager.isUserOnline`
+  first). `online-since` is stamped with Redis `NX` so it only gets set once
+  per online session, not reset on every heartbeat/reconnect — that's what
+  makes "online for 12m" in `GET /api/users/presence` accurate instead of
+  resetting to zero every ~30s.
+- **Call status only ever reaches `ringing` → `active`/`rejected` → `ended`
+  today** — there's no timeout that flips an unanswered `ringing` call to a
+  `missed` status; it just sits at `ringing` forever if nobody acts on it.
+  `GET /api/calls` (`call.service.ts`'s `listCallsForUser`) and dashboard's
+  `callsThisWeek` (`countCallsSince`) both read whatever status is currently
+  stored, so an old `ringing` row will show up looking like a still-active
+  call. If you add missed-call detection, do it as a real status transition
+  (a scheduled sweep or a check on read) rather than papering over it in the
+  frontend's label mapping.
 - **At-least-once delivery for chat**: persist to Postgres *before*
   broadcasting (see `chat.handler.ts`'s `send`); clients ack via
   `message:ack` and catch up via `GET /api/conversations/:id/messages?after=`.

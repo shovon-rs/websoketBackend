@@ -7,5 +7,6 @@ export const usersRouter = Router();
 
 usersRouter.use(requireAuth);
 usersRouter.get('/', usersController.listUsers);
+usersRouter.get('/presence', usersController.listPresence);
 usersRouter.post('/me/avatar', avatarUpload, usersController.uploadAvatar);
 usersRouter.delete('/me/avatar', usersController.removeAvatar);

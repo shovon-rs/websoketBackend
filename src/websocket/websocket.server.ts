@@ -7,7 +7,7 @@ import { verifyAccessToken } from '../services/auth.service';
 import { connectionManager } from './connection.manager';
 import { routeEvent, sendError } from './event.router';
 import { startHeartbeat } from './heartbeat';
-import { setPresence, clearPresence, refreshPresence } from '../redis/presence';
+import * as presenceService from '../services/presence.service';
 import { logger } from '../utils/logger';
 import { wsConnectionsTotal } from '../metrics/prometheus';
 import { env } from '../config/env';
@@ -88,12 +88,12 @@ export function attachWebSocketServer(httpServer: HttpServer): WebSocketServer {
 
     connectionManager.add(socketId, record);
     wsConnectionsTotal.inc();
-    setPresence(user.id).catch((err) => logger.error({ err }, 'Failed to set presence'));
+    presenceService.markUserOnline(user.id).catch((err) => logger.error({ err }, 'Failed to set presence'));
     logger.info({ userId: user.id, socketId }, 'WebSocket connected');
 
     ws.on('pong', () => {
       record.lastHeartbeat = new Date();
-      refreshPresence(user.id).catch(() => undefined);
+      presenceService.touchUserOnline(user.id).catch(() => undefined);
     });
 
     ws.on('message', async (data, isBinary) => {
@@ -125,7 +125,7 @@ export function attachWebSocketServer(httpServer: HttpServer): WebSocketServer {
     ws.on('close', () => {
       connectionManager.remove(socketId);
       if (!connectionManager.isUserOnline(user.id)) {
-        clearPresence(user.id).catch(() => undefined);
+        presenceService.markUserOffline(user.id).catch(() => undefined);
       }
       logger.info({ userId: user.id, socketId }, 'WebSocket disconnected');
     });

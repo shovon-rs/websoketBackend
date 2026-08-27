@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { v4 as uuid } from 'uuid';
 import { prisma } from '../../config/database';
 import * as storageService from '../../services/storage.service';
+import { getOnlineSince } from '../../redis/presence';
 
 const EXTENSION_BY_MIME: Record<string, string> = {
   'image/jpeg': 'jpg',
@@ -31,6 +32,38 @@ export async function listUsers(req: Request, res: Response): Promise<void> {
   });
 
   res.json({ users });
+}
+
+export async function listPresence(req: Request, res: Response): Promise<void> {
+  const users = await prisma.user.findMany({
+    where: { id: { not: req.user!.id } },
+    select: { id: true, displayName: true, email: true, avatarKey: true, lastSeenAt: true },
+    orderBy: { displayName: 'asc' },
+  });
+
+  const withPresence = await Promise.all(
+    users.map(async (u) => {
+      const onlineSince = await getOnlineSince(u.id);
+      return {
+        id: u.id,
+        displayName: u.displayName,
+        email: u.email,
+        avatarUrl: u.avatarKey ? await storageService.getDownloadUrl(u.avatarKey) : null,
+        online: !!onlineSince,
+        onlineSince,
+        lastSeenAt: u.lastSeenAt,
+      };
+    }),
+  );
+
+  // Online first (most-recently-connected first), then offline (most-recently-seen first).
+  withPresence.sort((a, b) => {
+    if (a.online !== b.online) return a.online ? -1 : 1;
+    if (a.online && b.online) return (b.onlineSince ?? '').localeCompare(a.onlineSince ?? '');
+    return (b.lastSeenAt?.getTime() ?? 0) - (a.lastSeenAt?.getTime() ?? 0);
+  });
+
+  res.json({ users: withPresence });
 }
 
 export async function uploadAvatar(req: Request, res: Response): Promise<void> {
