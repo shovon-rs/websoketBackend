@@ -29,7 +29,7 @@ const join: EventDefinition<z.infer<typeof joinSchema>> = {
   schema: joinSchema,
   handle: async (conn, payload) => {
     // Authorized viewers only — see privacy §16: session owner or explicitly authorized viewer.
-    await trackingService.assertOwner(payload.sessionId, conn.userId);
+    await trackingService.assertCanView(payload.sessionId, conn.userId);
     roomManager.join(conn.socketId, trackingRoom(payload.sessionId));
   },
 };

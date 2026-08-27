@@ -18,6 +18,7 @@ model User {
   refreshTokens        RefreshToken[]
   pushTokens           PushToken[]
   trackingSessions     TrackingSession[]
+  trackingSessionViews TrackingSessionViewer[]
   conversationMembers  ConversationMember[]
   messages             Message[]
   notifications        Notification[]
@@ -136,10 +137,25 @@ model TrackingSession {
   endedAt   DateTime?
 
   locations TrackingLocation[]
+  viewers   TrackingSessionViewer[]
   user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@map("tracking_sessions")
+}
+
+model TrackingSessionViewer {
+  id        String   @id @default(uuid())
+  sessionId String
+  userId    String
+  addedAt   DateTime @default(now())
+
+  session TrackingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user    User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, userId])
+  @@index([userId])
+  @@map("tracking_session_viewers")
 }
 
 model TrackingLocation {

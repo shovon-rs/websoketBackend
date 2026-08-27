@@ -110,14 +110,22 @@ the WS handshake will silently fail cross-origin.
   broadcasting (see `chat.handler.ts`'s `send`); clients ack via
   `message:ack` and catch up via `GET /api/conversations/:id/messages?after=`.
 - **Location privacy**: always round coordinates via `roundCoordinate()` in
-  `tracking.service.ts` before persisting, and only the session owner may
-  read/join a tracking room (`assertOwner`). The retention job
-  (`jobs/location-retention.job.ts`) purges rows older than
-  `LOCATION_RETENTION_DAYS` — don't bypass it with raw deletes.
-- **Push fallback**: use `dispatchNotification(userId, eventType, payload)`
+  `tracking.service.ts` before persisting. Read/join access to a tracking
+  room is gated by `assertCanView` (owner OR a row in `TrackingSessionViewer`
+  — see `addViewer`/`removeViewer`), not `assertOwner`; `assertOwner` is
+  reserved for owner-only actions (stop, delete-locations, share/unshare).
+  Sharing with a new viewer fires a persisted notification via
+  `dispatchNotification` with `data.kind: 'tracking:shared'` — the frontend's
+  tracking page listens for that exact marker to know when to refetch and
+  auto-join a newly shared session; keep the string in sync if you touch
+  either side. The retention job (`jobs/location-retention.job.ts`) purges
+  rows older than `LOCATION_RETENTION_DAYS` — don't bypass it with raw deletes.
+- **Push fallback**: use `dispatchNotification(userId, { type, title, body, data? })`
   from `services/push-dispatcher.service.ts` instead of checking
-  `connectionManager.isUserOnline` yourself — it already handles the
-  WS-vs-queue branch.
+  `connectionManager.isUserOnline` yourself — it persists the notification
+  (so it shows up in `GET /api/notifications` history) and then delivers over
+  WS if online, else queues offline push. Don't call `notificationService.createNotification`
+  directly for anything the recipient should be alerted to live — that skips delivery entirely.
 - **WS payload/message size cap**: 64KB, enforced in `event.router.ts`. REST
   bodies are capped at 1MB in `app.ts`. Don't raise either without updating
   both this file and `backend.md` §15.
@@ -145,7 +153,11 @@ the WS handshake will silently fail cross-origin.
 
 Before running integration tests or `dev` locally, copy `.env.example` to
 `.env` and point `DATABASE_URL`/`REDIS_URL` at real instances (or
-`docker compose up postgres redis`).
+`docker compose up postgres redis`). On this machine specifically, Postgres's
+host-side port is remapped to **15432** (not 5432) in `docker-compose.yml`/`.env`
+— 5432 falls inside a Windows-reserved dynamic port range (Hyper-V/WSL2) and
+fails to bind; container-to-container traffic still uses 5432 internally, so
+only the host mapping and `DATABASE_URL`'s port needed to change.
 
 ## WebSocket envelope (all events, both directions)
 
