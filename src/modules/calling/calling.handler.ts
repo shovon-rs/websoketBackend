@@ -53,11 +53,12 @@ const accept: EventDefinition<z.infer<typeof callIdSchema>> = {
   schema: callIdSchema,
   handle: async (conn, payload, eventId) => {
     const call = await callService.assertParticipant(payload.callId, conn.userId);
-    await callService.updateStatus(payload.callId, 'active');
-    await callService.recordEvent(payload.callId, 'accept');
-
     const caller = call.participants.find((p) => p.role === 'caller');
+
+    // Relay immediately so the caller can start WebRTC setup without waiting on these
+    // writes — they only persist call history and don't gate signaling correctness.
     if (caller) relayToUser(caller.userId, 'call:accept', { callId: payload.callId }, eventId);
+    await Promise.all([callService.updateStatus(payload.callId, 'active'), callService.recordEvent(payload.callId, 'accept')]);
   },
 };
 
@@ -65,21 +66,19 @@ const reject: EventDefinition<z.infer<typeof rejectSchema>> = {
   schema: rejectSchema,
   handle: async (conn, payload, eventId) => {
     const call = await callService.assertParticipant(payload.callId, conn.userId);
-    await callService.updateStatus(payload.callId, 'rejected');
-    await callService.recordEvent(payload.callId, 'reject');
-
     const caller = call.participants.find((p) => p.role === 'caller');
+
     if (caller) {
       relayToUser(caller.userId, 'call:reject', { callId: payload.callId, reason: payload.reason }, eventId);
     }
+    await Promise.all([callService.updateStatus(payload.callId, 'rejected'), callService.recordEvent(payload.callId, 'reject')]);
   },
 };
 
 const sdpOffer: EventDefinition<z.infer<typeof sdpSchema>> = {
   schema: sdpSchema,
   handle: async (conn, payload, eventId) => {
-    await callService.assertParticipant(payload.callId, conn.userId);
-    const target = await callService.otherParticipant(payload.callId, conn.userId);
+    const { target } = await callService.assertParticipantWithTarget(payload.callId, conn.userId);
     if (target) relayToUser(target, 'call:sdp-offer', { callId: payload.callId, sdp: payload.sdp }, eventId);
   },
 };
@@ -87,8 +86,7 @@ const sdpOffer: EventDefinition<z.infer<typeof sdpSchema>> = {
 const sdpAnswer: EventDefinition<z.infer<typeof sdpSchema>> = {
   schema: sdpSchema,
   handle: async (conn, payload, eventId) => {
-    await callService.assertParticipant(payload.callId, conn.userId);
-    const target = await callService.otherParticipant(payload.callId, conn.userId);
+    const { target } = await callService.assertParticipantWithTarget(payload.callId, conn.userId);
     if (target) relayToUser(target, 'call:sdp-answer', { callId: payload.callId, sdp: payload.sdp }, eventId);
   },
 };
@@ -96,8 +94,7 @@ const sdpAnswer: EventDefinition<z.infer<typeof sdpSchema>> = {
 const iceCandidate: EventDefinition<z.infer<typeof iceSchema>> = {
   schema: iceSchema,
   handle: async (conn, payload, eventId) => {
-    await callService.assertParticipant(payload.callId, conn.userId);
-    const target = await callService.otherParticipant(payload.callId, conn.userId);
+    const { target } = await callService.assertParticipantWithTarget(payload.callId, conn.userId);
     if (target) {
       relayToUser(target, 'call:ice-candidate', { callId: payload.callId, candidate: payload.candidate }, eventId);
     }
@@ -107,12 +104,9 @@ const iceCandidate: EventDefinition<z.infer<typeof iceSchema>> = {
 const end: EventDefinition<z.infer<typeof callIdSchema>> = {
   schema: callIdSchema,
   handle: async (conn, payload, eventId) => {
-    await callService.assertParticipant(payload.callId, conn.userId);
-    await callService.updateStatus(payload.callId, 'ended');
-    await callService.recordEvent(payload.callId, 'end');
-
-    const target = await callService.otherParticipant(payload.callId, conn.userId);
+    const { target } = await callService.assertParticipantWithTarget(payload.callId, conn.userId);
     if (target) relayToUser(target, 'call:end', { callId: payload.callId }, eventId);
+    await Promise.all([callService.updateStatus(payload.callId, 'ended'), callService.recordEvent(payload.callId, 'end')]);
   },
 };
 

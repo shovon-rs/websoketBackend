@@ -49,6 +49,20 @@ export async function otherParticipant(callId: string, userId: string): Promise<
   return call?.participants.find((p) => p.userId !== userId)?.userId;
 }
 
+// Single-fetch combination of assertParticipant + otherParticipant — signaling handlers
+// (sdp-offer/sdp-answer/ice-candidate/end) need both on every message, and fetching the
+// call row twice per message doubles DB round-trip latency on the signaling hot path
+// (most visibly with ICE candidates, which arrive as a burst of several per call).
+export async function assertParticipantWithTarget(
+  callId: string,
+  userId: string,
+): Promise<{ call: NonNullable<Awaited<ReturnType<typeof getCall>>>; target: string | undefined }> {
+  const call = await getCall(callId);
+  if (!call || !call.participants.some((p) => p.userId === userId)) throw new Error('FORBIDDEN');
+  const target = call.participants.find((p) => p.userId !== userId)?.userId;
+  return { call, target };
+}
+
 export async function updateStatus(callId: string, status: string) {
   const timestamps =
     status === 'active' ? { startedAt: new Date() } : status === 'ended' ? { endedAt: new Date() } : {};
