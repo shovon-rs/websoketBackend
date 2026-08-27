@@ -34,7 +34,7 @@ const envSchema = z.object({
   AWS_REGION: z.string().default('us-east-1'),
   AWS_ACCESS_KEY_ID: z.string().optional(),
   AWS_SECRET_ACCESS_KEY: z.string().optional(),
-  S3_BUCKET: z.string().optional(),
+  S3_BUCKET: z.string().default('realtime-platform-assets'),
   S3_ENDPOINT: z.string().optional(),
 
   LOCATION_RETENTION_DAYS: z.coerce.number().default(30),

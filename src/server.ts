@@ -4,6 +4,7 @@ import { attachWebSocketServer } from './websocket/websocket.server';
 import { startPushWorker } from './queue/push.queue';
 import { startLocationRetentionJob } from './jobs/location-retention.job';
 import { startDashboardMetricsJob } from './jobs/dashboard-metrics.job';
+import { ensureBucketExists } from './services/storage.service';
 import { env } from './config/env';
 import { logger } from './utils/logger';
 import { prisma } from './config/database';
@@ -16,6 +17,7 @@ attachWebSocketServer(httpServer);
 const pushWorker = startPushWorker();
 const retentionTimer = startLocationRetentionJob();
 const dashboardMetricsTimer = startDashboardMetricsJob();
+void ensureBucketExists();
 
 httpServer.listen(env.PORT, () => {
   logger.info({ port: env.PORT, env: env.NODE_ENV }, 'Server listening');

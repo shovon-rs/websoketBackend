@@ -129,6 +129,22 @@ the WS handshake will silently fail cross-origin.
 - **WS payload/message size cap**: 64KB, enforced in `event.router.ts`. REST
   bodies are capped at 1MB in `app.ts`. Don't raise either without updating
   both this file and `backend.md` §15.
+- **File uploads (e.g. avatars)**: go through the server, not a direct-to-S3
+  presigned PUT from the browser — `middleware/upload.middleware.ts` wraps
+  `multer` (memory storage, size/mimetype validated there) and hands
+  controllers a `req.file.buffer` to pass straight to
+  `storageService.uploadObject(key, buffer, mimetype)`. This sidesteps
+  needing bucket CORS config, which the direct-PUT pattern (`getUploadUrl`)
+  would require. Never persist a public URL for an object — store the S3
+  *key* only (e.g. `User.avatarKey`) and call `storageService.getDownloadUrl(key)`
+  fresh on every read; presigned GET URLs expire (1h) and a stored one would
+  eventually 403. `ensureBucketExists()` (called once in `server.ts`) creates
+  the bucket against MinIO in dev — it's a no-op against real S3, where the
+  bucket is expected to already exist. `storageService.isStorageConfigured()`
+  gates upload endpoints with a clean 503 instead of crashing when
+  `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` aren't set (true today on the
+  Railway deployment — object storage was never provisioned there, so avatar
+  upload only works in local dev until that's added).
 - **Never log secrets**: `logger` in `utils/logger.ts` redacts
   `authorization`/`password`/`token`/`refreshToken` — extend the redact list
   rather than logging sensitive fields manually.
