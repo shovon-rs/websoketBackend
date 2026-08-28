@@ -1,4 +1,5 @@
 import { prisma } from '../../config/database';
+import * as storageService from '../../services/storage.service';
 
 export async function assertMember(conversationId: string, userId: string): Promise<void> {
   const member = await prisma.conversationMember.findUnique({
@@ -54,12 +55,21 @@ export async function createMessage(params: {
   senderId: string;
   content: string;
   eventId: string;
+  attachmentId?: string;
 }) {
-  return prisma.message.create({ data: params });
+  return prisma.message.create({ data: params, include: { attachment: true } });
 }
 
 export async function getMessageByEventId(eventId: string) {
   return prisma.message.findUnique({ where: { eventId } });
+}
+
+async function withAttachmentUrl<T extends { attachment: { key: string } | null }>(
+  message: T,
+): Promise<Omit<T, 'attachment'> & { attachment: (T['attachment'] & { url: string }) | null }> {
+  if (!message.attachment) return { ...message, attachment: null };
+  const url = await storageService.getDownloadUrl(message.attachment.key);
+  return { ...message, attachment: { ...message.attachment, url } };
 }
 
 export async function getMessagesAfter(conversationId: string, afterEventId?: string, limit = 50) {
@@ -70,14 +80,38 @@ export async function getMessagesAfter(conversationId: string, afterEventId?: st
     cursorCreatedAt = cursorMessage?.createdAt;
   }
 
-  return prisma.message.findMany({
+  const messages = await prisma.message.findMany({
     where: {
       conversationId,
       ...(cursorCreatedAt ? { createdAt: { gt: cursorCreatedAt } } : {}),
     },
     orderBy: { createdAt: 'asc' },
     take: limit,
+    include: { attachment: true },
   });
+
+  return Promise.all(messages.map(withAttachmentUrl));
+}
+
+export async function createAttachment(params: {
+  conversationId: string;
+  uploaderId: string;
+  bucket: string;
+  key: string;
+  mimeType: string;
+  size: number;
+  fileName: string;
+}) {
+  return prisma.attachment.create({ data: params });
+}
+
+export async function getAttachmentById(attachmentId: string) {
+  return prisma.attachment.findUnique({ where: { id: attachmentId } });
+}
+
+export async function isAttachmentUsed(attachmentId: string): Promise<boolean> {
+  const message = await prisma.message.findUnique({ where: { attachmentId }, select: { id: true } });
+  return message !== null;
 }
 
 export async function markDelivered(eventId: string) {

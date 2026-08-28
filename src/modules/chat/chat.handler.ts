@@ -4,6 +4,7 @@ import { roomManager } from '../../websocket/room.manager';
 import { buildEvent } from '../../types/ws';
 import { EventDefinition } from '../../websocket/event.types';
 import * as chatService from './chat.service';
+import * as storageService from '../../services/storage.service';
 import { dispatchNotification } from '../../services/push-dispatcher.service';
 import { logger } from '../../utils/logger';
 
@@ -13,7 +14,13 @@ const conversationRoom = (conversationId: string) => `conversation:${conversatio
 
 const joinSchema = z.object({ conversationId: z.string().uuid() });
 const leaveSchema = z.object({ conversationId: z.string().uuid() });
-const sendSchema = z.object({ conversationId: z.string().uuid(), content: z.string().min(1).max(4000) });
+const sendSchema = z
+  .object({
+    conversationId: z.string().uuid(),
+    content: z.string().max(4000),
+    attachmentId: z.string().uuid().optional(),
+  })
+  .refine((v) => v.content.trim().length > 0 || v.attachmentId, { message: 'EMPTY_MESSAGE' });
 const ackSchema = z.object({ eventId: z.string() });
 const typingSchema = z.object({ conversationId: z.string().uuid() });
 
@@ -38,13 +45,35 @@ const send: EventDefinition<z.infer<typeof sendSchema>> = {
   handle: async (conn, payload, eventId) => {
     await chatService.assertMember(payload.conversationId, conn.userId);
 
+    if (payload.attachmentId) {
+      const attachment = await chatService.getAttachmentById(payload.attachmentId);
+      if (!attachment || attachment.conversationId !== payload.conversationId) {
+        throw new Error('ATTACHMENT_NOT_FOUND');
+      }
+      if (attachment.uploaderId !== conn.userId) throw new Error('FORBIDDEN');
+      if (await chatService.isAttachmentUsed(payload.attachmentId)) {
+        throw new Error('ATTACHMENT_ALREADY_USED');
+      }
+    }
+
     // Persist before broadcast so message history is durable even if broadcast fails.
     const message = await chatService.createMessage({
       conversationId: payload.conversationId,
       senderId: conn.userId,
       content: payload.content,
       eventId,
+      attachmentId: payload.attachmentId,
     });
+
+    const attachmentPayload = message.attachment
+      ? {
+          id: message.attachment.id,
+          fileName: message.attachment.fileName,
+          mimeType: message.attachment.mimeType,
+          size: message.attachment.size,
+          url: await storageService.getDownloadUrl(message.attachment.key),
+        }
+      : null;
 
     roomManager.broadcastToRoom(
       conversationRoom(payload.conversationId),
@@ -54,6 +83,7 @@ const send: EventDefinition<z.infer<typeof sendSchema>> = {
         senderId: message.senderId,
         content: message.content,
         createdAt: message.createdAt,
+        attachment: attachmentPayload,
       }, eventId),
     );
 
@@ -62,10 +92,13 @@ const send: EventDefinition<z.infer<typeof sendSchema>> = {
     const members = await chatService.getMembersWithUser(payload.conversationId);
     const sender = members.find((m) => m.userId === conn.userId);
     const others = members.filter((m) => m.userId !== conn.userId);
-    const preview =
-      payload.content.length > MESSAGE_PREVIEW_LENGTH
+    const preview = payload.content.trim()
+      ? payload.content.length > MESSAGE_PREVIEW_LENGTH
         ? `${payload.content.slice(0, MESSAGE_PREVIEW_LENGTH - 1)}…`
-        : payload.content;
+        : payload.content
+      : attachmentPayload
+        ? `📎 ${attachmentPayload.fileName}`
+        : '';
 
     await Promise.all(
       others.map((member) =>

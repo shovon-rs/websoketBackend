@@ -23,6 +23,7 @@ model User {
   trackingSessionViews TrackingSessionViewer[]
   conversationMembers  ConversationMember[]
   messages             Message[]
+  attachments          Attachment[]
   notifications        Notification[]
   initiatedCalls       Call[]                @relation("CallInitiator")
   callParticipants     CallParticipant[]
@@ -59,8 +60,9 @@ model Conversation {
   name      String?
   createdAt DateTime @default(now())
 
-  members  ConversationMember[]
-  messages Message[]
+  members     ConversationMember[]
+  messages    Message[]
+  attachments Attachment[]
 
   @@map("conversations")
 }
@@ -87,10 +89,12 @@ model Message {
   content        String
   eventId        String   @unique
   status         String   @default("sent") // sent | delivered | read
+  attachmentId   String?  @unique
   createdAt      DateTime @default(now())
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   sender       User         @relation(fields: [senderId], references: [id])
+  attachment   Attachment?  @relation(fields: [attachmentId], references: [id])
 
   @@index([conversationId, createdAt])
   @@map("messages")
@@ -327,13 +331,21 @@ model LiveStreamViewer {
 }
 
 model Attachment {
-  id         String   @id @default(uuid())
-  uploaderId String
-  bucket     String
-  key        String
-  mimeType   String
-  size       Int
-  createdAt  DateTime @default(now())
+  id             String   @id @default(uuid())
+  uploaderId     String
+  conversationId String
+  bucket         String
+  key            String
+  mimeType       String
+  size           Int
+  fileName       String
+  createdAt      DateTime @default(now())
 
+  uploader     User         @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  message      Message?
+
+  @@index([conversationId])
+  @@index([uploaderId])
   @@map("attachments")
 }

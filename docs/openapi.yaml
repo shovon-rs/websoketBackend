@@ -106,6 +106,25 @@ paths:
           schema: { type: string }
       responses:
         '200': { description: Message list }
+  /conversations/{id}/attachments:
+    post:
+      summary: Upload a file to attach to a message in this conversation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '201': { description: Attachment uploaded, returns a reference to include in message:send }
+        '503': { description: File storage is not configured on this server }
   /notifications:
     get:
       summary: Notification history
