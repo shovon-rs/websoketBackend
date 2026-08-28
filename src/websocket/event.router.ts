@@ -10,6 +10,7 @@ import { trackingHandlers } from '../modules/tracking/tracking.handler';
 import { callingHandlers } from '../modules/calling/calling.handler';
 import { dashboardHandlers } from '../modules/dashboard/dashboard.handler';
 import { collaborationHandlers } from '../modules/collaboration/collaboration.handler';
+import { livestreamHandlers } from '../modules/livestream/livestream.handler';
 
 const handlers: Record<string, EventDefinition<any>> = {
   ...chatHandlers,
@@ -18,6 +19,7 @@ const handlers: Record<string, EventDefinition<any>> = {
   ...callingHandlers,
   ...dashboardHandlers,
   ...collaborationHandlers,
+  ...livestreamHandlers,
 };
 
 const MAX_PAYLOAD_BYTES = 64 * 1024;

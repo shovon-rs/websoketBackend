@@ -5,6 +5,8 @@ import { v4 as uuid } from 'uuid';
 import { z } from 'zod';
 import { verifyAccessToken } from '../services/auth.service';
 import { connectionManager } from './connection.manager';
+import { roomManager } from './room.manager';
+import { ANNOUNCEMENTS_ROOM } from '../modules/announcements/announcements.handler';
 import { routeEvent, sendError } from './event.router';
 import { startHeartbeat } from './heartbeat';
 import * as presenceService from '../services/presence.service';
@@ -87,6 +89,12 @@ export function attachWebSocketServer(httpServer: HttpServer): WebSocketServer {
     };
 
     connectionManager.add(socketId, record);
+    // The one deliberate exception to "rooms are always opt-in" in this codebase — every
+    // connection joins this room so an "everyone" announcement can fan out via the existing
+    // Redis room broadcast without a client-side join event. No corresponding cleanup is
+    // needed on disconnect: connectionManager.remove() already leaves every room a socket
+    // was in.
+    roomManager.join(socketId, ANNOUNCEMENTS_ROOM);
     wsConnectionsTotal.inc();
     presenceService.markUserOnline(user.id).catch((err) => logger.error({ err }, 'Failed to set presence'));
     logger.info({ userId: user.id, socketId }, 'WebSocket connected');

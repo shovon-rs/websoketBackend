@@ -25,6 +25,18 @@ export async function enqueuePush(data: PushJobData): Promise<void> {
   });
 }
 
+/** Bulk variant of enqueuePush — one round trip to Redis instead of N, for mass delivery. */
+export async function enqueuePushBulk(jobs: PushJobData[]): Promise<void> {
+  if (jobs.length === 0) return;
+  await pushQueue.addBulk(
+    jobs.map((data) => ({
+      name: 'send-push',
+      data,
+      opts: { attempts: 3, backoff: { type: 'exponential', delay: 5000 } },
+    })),
+  );
+}
+
 export function startPushWorker(): Worker<PushJobData> {
   return new Worker<PushJobData>(
     'push-dispatch',

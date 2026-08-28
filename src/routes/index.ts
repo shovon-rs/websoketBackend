@@ -8,6 +8,7 @@ import { callsRouter } from '../modules/calling/calls.routes';
 import { pushRouter } from '../modules/push/push.routes';
 import { usersRouter } from '../modules/users/users.routes';
 import { documentsRouter } from '../modules/collaboration/documents.routes';
+import { announcementsRouter } from '../modules/announcements/announcements.routes';
 
 export const apiRouter = Router();
 
@@ -20,3 +21,4 @@ apiRouter.use('/calls', callsRouter);
 apiRouter.use('/push', pushRouter);
 apiRouter.use('/users', usersRouter);
 apiRouter.use('/documents', documentsRouter);
+apiRouter.use('/announcements', announcementsRouter);

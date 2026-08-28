@@ -182,6 +182,25 @@ The platform uses an **at-least-once** delivery model:
 
 **Core events:** `call:initiate`, `call:ringing`, `call:accept`, `call:reject`, `call:end`, `call:ice-candidate`, `call:sdp-offer`, `call:sdp-answer`
 
+### 7.7 Roles & Administration
+
+- Ordered role hierarchy: `user` < `admin` < `super_admin`; each higher role inherits every privilege of the roles below it — not two independent permission sets.
+- `admin`: view every registered user and change their role, limited to moving a user between `user` and `admin`. An `admin` may never grant, revoke, or otherwise act on `super_admin`.
+- `super_admin`: everything `admin` can do, plus grant/revoke `super_admin` itself, create and cancel announcements, and approve or reject live-stream requests.
+- Changing your own role is never permitted, at any role, to avoid accidental lockout.
+- A role change takes effect on the affected user's next token refresh, not instantly — the access token carries the role as a claim (see §18.1 for why privileged endpoints re-check the database instead of trusting that claim).
+- The first `super_admin` is bootstrapped from a configured admin email at startup (if the account already exists) or at registration (if it registers afterward) — no role can be granted before one exists.
+
+### 7.8 Announcements & Live Streaming
+
+- A `super_admin` composes an announcement — title, body, and an optional scheduled date/time — for either every user on the platform or a specific invited list.
+- Announcements are always persisted before delivery, the same at-least-once principle chat already uses (§6.1): delivered live over WebSocket to connected users, queued as offline push otherwise, and always visible via REST history so nobody misses one.
+- A scheduled announcement carries a live countdown to its start time; when that time arrives, a background sweep flips its status to "live" and fires a second "starting now" notification to the same audience.
+- Any user may request to go live (title, description, proposed date/time). A `super_admin` reviews pending requests and either approves — turning the request into a scheduled live-stream announcement with a countdown — or rejects it. The requester is notified of the outcome either way, and pending requests notify the super admin(s) live so they don't have to poll for them.
+- An approved live stream opens a real WebRTC video room: the broadcaster shares camera/mic directly to each viewer who joins — a small-scale mesh (one direct peer connection per viewer), reusing calling's signaling pattern rather than new WebRTC plumbing. This intentionally does not scale past a handful of concurrent viewers; true many-to-many streaming is the group-calling SFU integration already on the roadmap (§7.6, §11), not this feature.
+
+**Core events:** `announcement:new`, `announcement:live`, `livestream-request:new`, `livestream-request:decided`, `live:join`, `live:viewer-joined`, `live:sdp-offer`, `live:sdp-answer`, `live:ice-candidate`, `live:end`
+
 ---
 
 ## 8. REST API Plan
@@ -202,6 +221,16 @@ The platform uses an **at-least-once** delivery model:
 | GET | `/api/calls/:id` | Call details |
 | POST | `/api/push/register` | Register FCM/APNs/Web Push token |
 | DELETE | `/api/push/register` | Unregister push token |
+| GET | `/api/users/admin` | Full user roster with roles (admin+) |
+| PATCH | `/api/users/:id/role` | Change a user's role (admin+, subject to the escalation rules in §7.7) |
+| POST | `/api/announcements` | Create and broadcast an announcement (super_admin) |
+| GET | `/api/announcements` | List announcements visible to the caller |
+| GET | `/api/announcements/upcoming` | Soonest upcoming/live announcement visible to the caller |
+| PATCH | `/api/announcements/:id/cancel` | Cancel a scheduled or live announcement (super_admin) |
+| POST | `/api/announcements/requests` | Submit a request to go live |
+| GET | `/api/announcements/requests` | List live-stream requests (super_admin) |
+| POST | `/api/announcements/requests/:id/approve` | Approve a request, scheduling the live stream (super_admin) |
+| POST | `/api/announcements/requests/:id/reject` | Reject a request (super_admin) |
 
 Full API specification is documented in OpenAPI/Swagger format (see `docs/openapi.yaml`).
 
@@ -229,6 +258,11 @@ Full API specification is documented in OpenAPI/Swagger format (see `docs/openap
 | `call_quality_metrics` | Optional packet loss, latency, jitter (future) |
 | `push_tokens` | FCM/APNs/Web Push device tokens per user |
 | `attachments` | File attachment metadata (S3 key, MIME type, size) — future |
+| `announcements` | Announcement/event records — kind, audience, schedule, status |
+| `announcement_invites` | Per-user invite list for `invited`-audience announcements |
+| `livestream_requests` | User requests to go live and their review outcome |
+| `livestream_sessions` | Active/past live-stream video sessions |
+| `livestream_viewers` | Best-effort audit trail of who joined a live session (see §18.4) |
 
 PostgreSQL stores all durable records. Redis stores ephemeral connection/presence state and distributes events.
 
@@ -294,6 +328,7 @@ For cloud deployments (AWS ALB, GCP Load Balancer), enable "stickiness" / "sessi
 - HTTPS/WSS in production
 - Never log passwords, tokens, or sensitive payloads
 - STUN/TURN credentials stored in environment variables, not source code
+- Privileged (admin/super_admin) actions re-check the caller's role against the database on every request rather than trusting the JWT claim alone, closing the window where a just-revoked role would otherwise stay valid for the remaining life of the access token (see §18.1)
 
 ---
 
@@ -380,7 +415,41 @@ Maintain the spec alongside the code — update `openapi.yaml` whenever an endpo
 
 ---
 
-## 18. Development Roadmap
+## 18. Roles, Admin & Live Streaming Design
+
+Roles, announcements, and live streaming build directly on infrastructure already described above (§6.1 delivery guarantees, §7.6 calling/WebRTC, §10 Redis pub/sub) rather than introducing new infrastructure.
+
+### 18.1 Role Hierarchy
+
+| Rule | Detail |
+|---|---|
+| Hierarchy | `user` (0) < `admin` (1) < `super_admin` (2); higher ranks inherit all lower-rank privileges |
+| Grant/revoke `super_admin` | Only an existing `super_admin` may do this |
+| Grant/revoke `admin` | An `admin` or `super_admin` may move a user between `user` and `admin`; an `admin` may never act on an existing `super_admin` |
+| Self-role-change | Never permitted, at any role, to avoid accidental lockout |
+| Bootstrap | A configured super-admin email is promoted at startup (if the account already exists) or at registration (if it registers afterward) — the only way the first `super_admin` can come to exist |
+| Staleness | Access tokens carry the role claim and are not re-verified for ordinary requests; privileged endpoints specifically re-check the database on every call so a revoked role can't keep acting for the remaining life of the token |
+
+### 18.2 Announcement Delivery
+
+| Audience | Delivery mechanism |
+|---|---|
+| `everyone` | Every connection auto-joins one platform-wide room at connect time — the sole exception to every other room in this platform being opt-in. Announcements publish to it via the existing Redis pub/sub fan-out (§10), reaching all connected users across every instance in one call. Notification rows are bulk-inserted for every user in one round trip, and offline users are enqueued for push in bulk, rather than looping per user. |
+| `invited` | Delivered directly to each invited user's active connection(s), the same way call signaling already targets a specific user (§7.6) — no room needed for a short, explicit list. Still persisted per-recipient for REST catch-up and offline push. |
+
+Both paths follow the same persist-before-deliver principle as chat (§6.1): a missed WebSocket delivery is never a lost announcement, only a delayed one, visible on next login via notification history.
+
+### 18.3 Live-Stream Countdown
+
+A scheduled announcement's target time is checked by a periodic background sweep (the same pattern as the location-retention job, §17). Because multiple server instances run this sweep independently with no leader election, the sweep claims a row with a conditional update — only flipping `scheduled → live` if the row is *still* `scheduled` at that instant — so exactly one instance's pass wins the race and exactly one "starting now" notification goes out. A blind, unconditional flip would double-notify under concurrent instances.
+
+### 18.4 Live-Stream Video Scope
+
+The approved broadcaster's camera/mic reaches each viewer via a direct WebRTC connection per viewer (a small mesh), reusing the same signaling pattern, STUN/TURN configuration, and offer/answer/ICE exchange as one-to-one calling (§7.6) rather than new WebRTC plumbing. This is a deliberate scope boundary, not an oversight: a mesh's bandwidth cost on the broadcaster grows with every viewer, so it is capped to a small, config-driven audience and is explicitly not the scalable path — true many-to-many streaming is the group-calling SFU integration already on the roadmap (§7.6, §11).
+
+---
+
+## 19. Development Roadmap
 
 | Phase | Module | Main Work | Estimate |
 |---|---|---|---|
@@ -396,12 +465,13 @@ Maintain the spec alongside the code — update `openapi.yaml` whenever an endpo
 | Phase 10 | Collaboration | Shared documents, presence, edits, versioning | ~2 weeks |
 | Phase 11 | Group Calling | SFU-based group audio/video (LiveKit/mediasoup) | ~2 weeks |
 | Phase 12 | Scaling & Production | Redis Sentinel/Cluster, sticky sessions, Prometheus/Grafana, load tests, CI/CD | ~2 weeks |
+| Phase 13 | Roles, Admin & Live Streaming | Role hierarchy and admin gating, admin user/role management, announcements with countdown (everyone/invited audience), live-stream request/approval workflow, small-scale mesh live video (see §18) | ~2–3 weeks |
 
-**Total estimate:** ~18–22 weeks for a full team. MVP (Phases 1–6 + basic audio/video) is achievable in ~10–12 weeks.
+**Total estimate:** ~18–22 weeks for a full team, plus ~2–3 weeks for Phase 13 as a post-MVP addition. MVP (Phases 1–6 + basic audio/video) is achievable in ~10–12 weeks.
 
 ---
 
-## 19. Testing Strategy
+## 20. Testing Strategy
 
 - **Unit tests** — connection manager, room manager, event router, services (Vitest/Jest)
 - **API integration tests** — authentication and CRUD endpoints (Supertest)
@@ -413,7 +483,7 @@ Maintain the spec alongside the code — update `openapi.yaml` whenever an endpo
 
 ---
 
-## 20. Deployment
+## 21. Deployment
 
 **Development:** Docker Compose with Node.js, PostgreSQL, Redis, and MinIO.
 
@@ -431,7 +501,7 @@ Client → HTTPS/WSS
 
 ---
 
-## 21. MVP Scope
+## 22. MVP Scope
 
 - JWT authentication and WebSocket authentication
 - Connection manager, heartbeat, rooms, and presence
@@ -448,11 +518,11 @@ Client → HTTPS/WSS
 - Prometheus metrics endpoint, structured logging, health checks
 - Basic automated tests
 
-Group calling via SFU, advanced collaborative editing, attachments, call recording, advanced analytics, and multi-region scaling follow the MVP.
+Group calling via SFU, advanced collaborative editing, attachments, call recording, advanced analytics, multi-region scaling, and roles/admin/announcements/live streaming (§18) follow the MVP.
 
 ---
 
-## 22. Success Criteria
+## 23. Success Criteria
 
 - Users maintain stable authenticated WebSocket connections
 - Users receive only events from authorized rooms
@@ -469,7 +539,7 @@ Group calling via SFU, advanced collaborative editing, attachments, call recordi
 
 ---
 
-## 23. Official References
+## 24. Official References
 
 | Resource | URL |
 |---|---|

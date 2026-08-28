@@ -43,3 +43,15 @@ export async function clearOnlineSince(userId: string): Promise<void> {
 export async function getOnlineSince(userId: string): Promise<string | null> {
   return redisClient.get(onlineSinceKey(userId));
 }
+
+/**
+ * Bulk, cross-instance-accurate presence check (one `mget` instead of N `get`s) — used for
+ * mass delivery (e.g. "everyone" announcements) where connectionManager.isUserOnline would be
+ * wrong: it only sees this instance's local connections, so a user connected to a *different*
+ * instance would be misreported as offline and sent a redundant push.
+ */
+export async function getManyOnlineSince(userIds: string[]): Promise<Map<string, string | null>> {
+  if (userIds.length === 0) return new Map();
+  const values = await redisClient.mget(...userIds.map(onlineSinceKey));
+  return new Map(userIds.map((id, index) => [id, values[index]]));
+}

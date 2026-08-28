@@ -62,8 +62,13 @@ export async function register(req: Request<unknown, unknown, RegisterInput>, re
     return;
   }
 
+  // The first super_admin can't be granted through the API (nobody with the role exists yet
+  // to grant it), so a matching registration is promoted at creation time. Existing accounts
+  // are covered separately by ensureSuperAdminBootstrap() at server startup.
+  const role = env.SUPER_ADMIN_EMAIL && email.toLowerCase() === env.SUPER_ADMIN_EMAIL.toLowerCase() ? 'super_admin' : 'user';
+
   const user = await prisma.user.create({
-    data: { email, displayName, passwordHash: await hashPassword(password) },
+    data: { email, displayName, passwordHash: await hashPassword(password), role },
   });
 
   const { accessToken, refreshToken } = await issueTokenPair({ id: user.id, email: user.email, role: user.role });

@@ -40,6 +40,11 @@ const envSchema = z.object({
   LOCATION_RETENTION_DAYS: z.coerce.number().default(30),
 
   METRICS_PATH: z.string().default('/metrics'),
+
+  // Promoted to super_admin at boot (if already registered) or at registration time
+  // (if they sign up afterward) — the only way the first super_admin can come to exist.
+  SUPER_ADMIN_EMAIL: z.string().email().optional(),
+  LIVESTREAM_MAX_VIEWERS: z.coerce.number().default(8),
 });
 
 const parsed = envSchema.safeParse(process.env);

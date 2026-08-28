@@ -28,6 +28,14 @@ model User {
   callParticipants     CallParticipant[]
   documentVersions     DocumentVersion[]
 
+  announcementsAuthored      Announcement[]        @relation("AnnouncementAuthor")
+  announcementsBroadcasting  Announcement[]        @relation("AnnouncementBroadcaster")
+  announcementInvites        AnnouncementInvite[]  @relation("AnnouncementInvitee")
+  liveStreamRequestsMade     LiveStreamRequest[]   @relation("LiveStreamRequester")
+  liveStreamRequestsReviewed LiveStreamRequest[]   @relation("LiveStreamReviewer")
+  liveStreamsBroadcast       LiveStreamSession[]    @relation("LiveBroadcaster")
+  liveStreamViewerships      LiveStreamViewer[]     @relation("LiveViewer")
+
   @@map("users")
 }
 
@@ -228,6 +236,94 @@ model CallEvent {
 
   @@index([callId, createdAt])
   @@map("call_events")
+}
+
+model Announcement {
+  id            String    @id @default(uuid())
+  authorId      String
+  broadcasterId String?
+  kind          String    @default("general") // 'general' | 'livestream'
+  title         String
+  body          String
+  audience      String // 'everyone' | 'invited'
+  status        String    @default("published") // 'published' | 'scheduled' | 'live' | 'ended' | 'cancelled'
+  scheduledAt   DateTime?
+  startedAt     DateTime?
+  endedAt       DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  author      User                 @relation("AnnouncementAuthor", fields: [authorId], references: [id])
+  broadcaster User?                @relation("AnnouncementBroadcaster", fields: [broadcasterId], references: [id])
+  invites     AnnouncementInvite[]
+  request     LiveStreamRequest?
+  liveSession LiveStreamSession?
+
+  @@index([status, scheduledAt])
+  @@map("announcements")
+}
+
+model AnnouncementInvite {
+  id             String   @id @default(uuid())
+  announcementId String
+  userId         String
+  createdAt      DateTime @default(now())
+
+  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  user         User         @relation("AnnouncementInvitee", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([announcementId, userId])
+  @@index([userId])
+  @@map("announcement_invites")
+}
+
+model LiveStreamRequest {
+  id             String    @id @default(uuid())
+  requesterId    String
+  title          String
+  description    String
+  proposedAt     DateTime?
+  status         String    @default("pending") // 'pending' | 'approved' | 'rejected'
+  announcementId String?   @unique
+  reviewedById   String?
+  reviewedAt     DateTime?
+  createdAt      DateTime  @default(now())
+
+  requester    User          @relation("LiveStreamRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  reviewedBy   User?         @relation("LiveStreamReviewer", fields: [reviewedById], references: [id])
+  announcement Announcement? @relation(fields: [announcementId], references: [id])
+
+  @@index([status])
+  @@map("livestream_requests")
+}
+
+model LiveStreamSession {
+  id             String    @id @default(uuid())
+  announcementId String    @unique
+  broadcasterId  String
+  startedAt      DateTime  @default(now())
+  endedAt        DateTime?
+
+  announcement Announcement       @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  broadcaster  User               @relation("LiveBroadcaster", fields: [broadcasterId], references: [id])
+  viewers      LiveStreamViewer[]
+
+  @@map("livestream_sessions")
+}
+
+model LiveStreamViewer {
+  id        String    @id @default(uuid())
+  sessionId String
+  userId    String
+  joinedAt  DateTime  @default(now())
+  leftAt    DateTime?
+
+  session LiveStreamSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user    User              @relation("LiveViewer", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([userId])
+  @@map("livestream_viewers")
 }
 
 model Attachment {

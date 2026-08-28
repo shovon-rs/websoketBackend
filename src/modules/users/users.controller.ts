@@ -3,6 +3,8 @@ import { v4 as uuid } from 'uuid';
 import { prisma } from '../../config/database';
 import * as storageService from '../../services/storage.service';
 import { getOnlineSince } from '../../redis/presence';
+import * as usersService from './users.service';
+import { UpdateUserRoleInput } from './users.schemas';
 
 const EXTENSION_BY_MIME: Record<string, string> = {
   'image/jpeg': 'jpg',
@@ -91,6 +93,17 @@ export async function uploadAvatar(req: Request, res: Response): Promise<void> {
 
   const avatarUrl = await storageService.getDownloadUrl(key);
   res.status(201).json({ avatarUrl });
+}
+
+export async function listAllUsersForAdmin(req: Request, res: Response): Promise<void> {
+  const search = typeof req.query.search === 'string' ? req.query.search : undefined;
+  const users = await usersService.listAllUsers(search);
+  res.json({ users });
+}
+
+export async function updateUserRole(req: Request<{ id: string }, unknown, UpdateUserRoleInput>, res: Response): Promise<void> {
+  const user = await usersService.updateUserRole(req.user!, req.params.id, req.body.role);
+  res.json(user);
 }
 
 export async function removeAvatar(req: Request, res: Response): Promise<void> {
