@@ -70,7 +70,7 @@ config never serves traffic (fails the healthcheck → Railway retries/rolls bac
 
 | Var | Currently set? | Effect if missing |
 |---|---|---|
-| `ALLOWED_ORIGINS` | ✅ `https://websoket-frontned.vercel.app` | Wrong/missing value → CORS **and** the WS upgrade's Origin check both silently reject the real frontend. Must be kept in sync whenever the frontend's deployed domain changes. |
+| `ALLOWED_ORIGINS` | ✅ `https://websoket-frontend.vercel.app,https://websoket-frontned.vercel.app` (comma-separated, both accepted during the domain-rename transition — see §8) | Wrong/missing value → CORS **and** the WS upgrade's Origin check both silently reject the real frontend. Must be kept in sync whenever the frontend's deployed domain changes. |
 | `REDIS_URL` | ✅ | Falls back to `redis://localhost:6379` (wrong in any container env) — cross-instance events, presence, and push queueing break |
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `S3_BUCKET` / `S3_ENDPOINT` | ✅ (wired to `Bucket`, see §5) | `storageService.isStorageConfigured()` returns false → avatar/attachment upload endpoints return a clean `503 STORAGE_NOT_CONFIGURED` instead of crashing |
 | `SUPER_ADMIN_EMAIL` | ⚠️ **not currently set** | No account can ever become `super_admin` automatically — the bootstrap in `bootstrap.service.ts` / `auth.controller.ts::register` is a no-op without it. Set this to the email of the account that should be promoted, then either restart the service (if that account already exists) or have that email register. |
@@ -200,6 +200,35 @@ briefly unreachable at boot). Every fire-and-forget boot-time call in
 `server.ts` (`ensureBucketExists`, `ensureSuperAdminBootstrap`, etc.) must have
 a `.catch(err => logger.error(...))` — this already bit `ensureSuperAdminBootstrap`
 once; check new ones added the same way.
+
+**Railway variable-triggered redeploy silently rebuilds a stale source snapshot.**
+Setting a variable (`railway variables --set`) *does* redeploy, but from a
+cached source "snapshot" of whatever was last built — not necessarily the
+latest `git push`. Confirmed on 2026-09-11: after several commits landed with
+no Railway deploy in between (auto-deploy from GitHub wasn't firing, same root
+cause as the `404` case above), a variable-only redeploy came back `SUCCESS`
+but the new code wasn't live (`prisma migrate deploy` reported "No pending
+migrations" and a validation-schema change wasn't in effect). `railway up
+--detach` from the actual local working tree (matching `origin/main`) is the
+only way to be sure — do this whenever a variable-change redeploy is meant to
+also ship pending commits, not just apply the new variable value.
+
+**The Vercel frontend's `.vercel.app` domain doesn't follow a project rename.**
+`vercel project rename <old> <new>` renames the project but does **not**
+move its auto-assigned `<name>.vercel.app` domain — that domain is a
+permanent slot fixed at project creation. `vercel project list` and a fresh
+`vercel --prod` deploy both kept aliasing to the *old* name's domain even
+after the rename. There's no CLI command to reassign it (`vercel domains
+add/inspect` only manages externally-owned custom domains); a raw `vercel
+alias set <deployment> <new-name>.vercel.app` does make the new hostname
+resolve, but it sits behind Vercel's deployment-protection SSO wall because
+only the project's registered "Domains" (set via the dashboard) are exempt —
+an ad hoc CLI alias isn't. Reassigning the primary domain to match a renamed
+project requires a manual step in the Vercel dashboard (Project Settings →
+Domains). Until that's done, keep **both** hostnames in the backend's
+`ALLOWED_ORIGINS` (see §4) so neither the old (still fully working) nor the
+new (alias resolves, but ends at the SSO wall for anonymous visitors) domain
+breaks CORS for whoever is using it.
 
 **Prisma migration needed but you're scripting a non-interactive environment.**
 `prisma migrate dev` refuses to run non-interactively (it wants a y/n prompt
