@@ -172,6 +172,28 @@ the WS handshake will silently fail cross-origin.
   boot if one is missing/invalid — add new vars there (with a sensible
   default when optional) rather than reading `process.env` directly
   elsewhere.
+- **Roles are a ranked hierarchy, not a set**: `user` < `manager` < `admin` <
+  `super_admin` (`utils/roles.ts`'s `ROLE_RANK`). Always gate with
+  `hasRole(role, min)` / `requireRole(min)` — never compare `role === 'admin'`
+  directly, or a new role slotted into the hierarchy silently won't inherit
+  access it should. The one deliberate exception is the `super_admin`
+  boundary itself (`users.service.ts`'s `assertRoleAssignmentAllowed`):
+  granting/revoking/deleting `super_admin` requires actually *being*
+  `super_admin`, not just outranking the target.
+- **New password fields must use `utils/password.ts`'s `strongPasswordSchema`**
+  (min 8 chars, upper+lower+digit+special) instead of a bare `z.string().min(8)`
+  — this covers register, `POST /api/auth/change-password`, and admin-created
+  accounts (`POST /api/users`) today; keep any new password entry point on the
+  same schema rather than inventing a separate rule.
+- **User deletion is a soft delete, not a row removal**: `usersService.deleteUser`
+  only stamps `User.deletedAt` and revokes refresh tokens. Several relations
+  (`Message.sender`, `Call.initiator`, `DocumentVersion.author`,
+  `Announcement.author`, ...) intentionally have no `onDelete: Cascade` back to
+  `User`, so a real hard-delete would either throw an FK error or destroy other
+  users' shared history if cascaded. Every user-listing query
+  (`listAllUsers`, `listUsers`, `listPresence`) and `login`/`requireRole` must
+  keep excluding/rejecting `deletedAt` rows — don't drop that filter when
+  touching those queries.
 
 ## Commands
 

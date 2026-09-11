@@ -194,9 +194,13 @@ The platform uses an **at-least-once** delivery model:
 
 ### 7.7 Roles & Administration
 
-- Ordered role hierarchy: `user` < `admin` < `super_admin`; each higher role inherits every privilege of the roles below it — not two independent permission sets.
-- `admin`: view every registered user and change their role, limited to moving a user between `user` and `admin`. An `admin` may never grant, revoke, or otherwise act on `super_admin`.
-- `super_admin`: everything `admin` can do, plus grant/revoke `super_admin` itself, create and cancel announcements, and approve or reject live-stream requests.
+- Ordered role hierarchy: `user` < `manager` < `admin` < `super_admin`; each higher role inherits every privilege of the roles below it — not independent permission sets.
+- `manager` is a rank, not yet a distinct permission set of its own — today it sits between `user` and `admin` in every rank check (`hasRole`), but no endpoint grants it manager-specific abilities beyond that. Add those as they're needed rather than assuming this list is exhaustive.
+- `admin`/`manager`: any account ranked `admin` or above may view every registered user, create a new user account (with a temporary password), and change a target's role to anything below `super_admin`. An `admin` may never grant, revoke, or otherwise act on an existing `super_admin`.
+- `super_admin`: everything `admin` can do, plus grant/revoke `super_admin` itself, create another `super_admin` account directly, delete (disable) any `user`/`manager`/`admin` account, create and cancel announcements, and approve or reject live-stream requests. A `super_admin` may never delete another `super_admin`, and nobody may delete their own account.
+- "Delete" is a soft delete: the row is kept (`deletedAt` stamped, refresh tokens revoked) rather than removed, since several tables (messages, calls, document versions, announcements, ...) restrict deletion of their author/participant relation — hard-deleting a user with any history would either throw an FK error or, if cascaded, silently destroy other users' shared conversation/call/document history. A disabled account can no longer log in and is hidden from user rosters, which is the practical effect "delete" implies here.
+- An account created directly by an admin/super_admin (`POST /api/users`) is flagged `mustChangePassword: true`; the frontend forces that user to set their own password (via `POST /api/auth/change-password`, which requires the current password) before it lets them use anything else.
+- Every password — at registration, at admin-created-account time, and at change-password time — must satisfy a shared strong-password policy (min 8 characters, upper + lower + digit + special character; see `src/utils/password.ts`).
 - Changing your own role is never permitted, at any role, to avoid accidental lockout.
 - A role change takes effect on the affected user's next token refresh, not instantly — the access token carries the role as a claim (see §18.1 for why privileged endpoints re-check the database instead of trusting that claim).
 - The first `super_admin` is bootstrapped from a configured admin email at startup (if the account already exists) or at registration (if it registers afterward) — no role can be granted before one exists.
@@ -217,9 +221,10 @@ The platform uses an **at-least-once** delivery model:
 
 | Method | Endpoint | Purpose |
 |---|---|---|
-| POST | `/api/auth/register` | Create user |
+| POST | `/api/auth/register` | Create user (strong password required) |
 | POST | `/api/auth/login` | Authenticate user |
 | POST | `/api/auth/refresh` | Refresh access token |
+| POST | `/api/auth/change-password` | Change your own password (requires the current password; strong password required) |
 | GET | `/api/users/me` | Current user profile |
 | GET | `/api/conversations` | Conversation list |
 | GET | `/api/conversations/:id/messages` | Message history (paginated, supports `?after=<eventId>` for catch-up) |
@@ -232,7 +237,9 @@ The platform uses an **at-least-once** delivery model:
 | POST | `/api/push/register` | Register FCM/APNs/Web Push token |
 | DELETE | `/api/push/register` | Unregister push token |
 | GET | `/api/users/admin` | Full user roster with roles (admin+) |
+| POST | `/api/users` | Create a user account with a temporary password (admin+, subject to the escalation rules in §7.7) |
 | PATCH | `/api/users/:id/role` | Change a user's role (admin+, subject to the escalation rules in §7.7) |
+| DELETE | `/api/users/:id` | Delete (disable) a user account (super_admin only, subject to §7.7) |
 | POST | `/api/announcements` | Create and broadcast an announcement (super_admin) |
 | GET | `/api/announcements` | List announcements visible to the caller |
 | GET | `/api/announcements/upcoming` | Soonest upcoming/live announcement visible to the caller |
@@ -331,6 +338,7 @@ For cloud deployments (AWS ALB, GCP Load Balancer), enable "stickiness" / "sessi
 ## 12. Security Requirements
 
 - JWT authentication for REST and WebSocket handshake
+- Strong-password policy enforced on every password entry point (registration, admin-created accounts, change-password): min 8 characters, upper + lower + digit + special character (`src/utils/password.ts`)
 - Role/permission checks for protected resources and rooms
 - Zod validation for every incoming WebSocket payload
 - Message and payload size limits
@@ -434,9 +442,11 @@ Roles, announcements, and live streaming build directly on infrastructure alread
 
 | Rule | Detail |
 |---|---|
-| Hierarchy | `user` (0) < `admin` (1) < `super_admin` (2); higher ranks inherit all lower-rank privileges |
-| Grant/revoke `super_admin` | Only an existing `super_admin` may do this |
-| Grant/revoke `admin` | An `admin` or `super_admin` may move a user between `user` and `admin`; an `admin` may never act on an existing `super_admin` |
+| Hierarchy | `user` (0) < `manager` (1) < `admin` (2) < `super_admin` (3); higher ranks inherit all lower-rank privileges |
+| Grant/revoke `super_admin` | Only an existing `super_admin` may do this (including creating a new account directly at that role) |
+| Grant/revoke `manager`/`admin` | An `admin` or `super_admin` may move a user between `user`/`manager`/`admin`; an `admin` may never act on an existing `super_admin` |
+| Create a user account | `admin`+ can provision an account directly with a temporary password (`mustChangePassword: true`); the role assigned follows the same escalation rule as a role change |
+| Delete (disable) a user | `super_admin` only; may not delete another `super_admin` or their own account. Implemented as a soft delete — see §7.7 |
 | Self-role-change | Never permitted, at any role, to avoid accidental lockout |
 | Bootstrap | A configured super-admin email is promoted at startup (if the account already exists) or at registration (if it registers afterward) — the only way the first `super_admin` can come to exist |
 | Staleness | Access tokens carry the role claim and are not re-verified for ordinary requests; privileged endpoints specifically re-check the database on every call so a revoked role can't keep acting for the remaining life of the token |

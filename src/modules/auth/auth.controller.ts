@@ -10,7 +10,7 @@ import {
   rotateRefreshToken,
   verifyPassword,
 } from '../../services/auth.service';
-import { LoginInput, RegisterInput, UpdateProfileInput } from './auth.schemas';
+import { ChangePasswordInput, LoginInput, RegisterInput, UpdateProfileInput } from './auth.schemas';
 import { logger } from '../../utils/logger';
 import * as storageService from '../../services/storage.service';
 
@@ -23,6 +23,7 @@ async function serializeUser(user: User) {
     role: user.role,
     createdAt: user.createdAt,
     avatarUrl,
+    mustChangePassword: user.mustChangePassword,
   };
 }
 
@@ -90,6 +91,11 @@ export async function login(req: Request<unknown, unknown, LoginInput>, res: Res
     return;
   }
 
+  if (user.deletedAt) {
+    res.status(401).json({ error: { code: 'ACCOUNT_DISABLED', message: 'This account has been disabled' } });
+    return;
+  }
+
   const { accessToken, refreshToken } = await issueTokenPair({ id: user.id, email: user.email, role: user.role });
   setRefreshCookie(res, refreshToken);
   res.json({ user: await serializeUser(user), accessToken, ...(isMobileClient(req) ? { refreshToken } : {}) });
@@ -130,4 +136,19 @@ export async function updateMe(req: Request<unknown, unknown, UpdateProfileInput
     data: { displayName: req.body.displayName },
   });
   res.json(await serializeUser(user));
+}
+
+export async function changePassword(req: Request<unknown, unknown, ChangePasswordInput>, res: Response): Promise<void> {
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
+
+  if (!(await verifyPassword(req.body.oldPassword, user.passwordHash))) {
+    res.status(401).json({ error: { code: 'INVALID_CURRENT_PASSWORD', message: 'Current password is incorrect' } });
+    return;
+  }
+
+  const updated = await prisma.user.update({
+    where: { id: user.id },
+    data: { passwordHash: await hashPassword(req.body.newPassword), mustChangePassword: false },
+  });
+  res.json(await serializeUser(updated));
 }

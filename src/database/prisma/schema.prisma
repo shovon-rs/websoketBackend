@@ -16,6 +16,8 @@ model User {
   role          String   @default("user")
   createdAt     DateTime @default(now())
   lastSeenAt    DateTime?
+  deletedAt     DateTime?
+  mustChangePassword Boolean @default(false)
 
   refreshTokens        RefreshToken[]
   pushTokens           PushToken[]

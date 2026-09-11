@@ -34,8 +34,8 @@ export function requireRole(min: Role) {
       return;
     }
 
-    const fresh = await prisma.user.findUnique({ where: { id: req.user.id }, select: { role: true } });
-    if (!fresh || !hasRole(fresh.role, min)) {
+    const fresh = await prisma.user.findUnique({ where: { id: req.user.id }, select: { role: true, deletedAt: true } });
+    if (!fresh || fresh.deletedAt || !hasRole(fresh.role, min)) {
       res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Insufficient role' } });
       return;
     }

@@ -4,7 +4,7 @@ import { prisma } from '../../config/database';
 import * as storageService from '../../services/storage.service';
 import { getOnlineSince } from '../../redis/presence';
 import * as usersService from './users.service';
-import { UpdateUserRoleInput } from './users.schemas';
+import { CreateUserInput, UpdateUserRoleInput } from './users.schemas';
 
 const EXTENSION_BY_MIME: Record<string, string> = {
   'image/jpeg': 'jpg',
@@ -19,6 +19,7 @@ export async function listUsers(req: Request, res: Response): Promise<void> {
   const users = await prisma.user.findMany({
     where: {
       id: { not: req.user!.id },
+      deletedAt: null,
       ...(search
         ? {
             OR: [
@@ -38,7 +39,7 @@ export async function listUsers(req: Request, res: Response): Promise<void> {
 
 export async function listPresence(req: Request, res: Response): Promise<void> {
   const users = await prisma.user.findMany({
-    where: { id: { not: req.user!.id } },
+    where: { id: { not: req.user!.id }, deletedAt: null },
     select: { id: true, displayName: true, email: true, avatarKey: true, lastSeenAt: true },
     orderBy: { displayName: 'asc' },
   });
@@ -104,6 +105,16 @@ export async function listAllUsersForAdmin(req: Request, res: Response): Promise
 export async function updateUserRole(req: Request<{ id: string }, unknown, UpdateUserRoleInput>, res: Response): Promise<void> {
   const user = await usersService.updateUserRole(req.user!, req.params.id, req.body.role);
   res.json(user);
+}
+
+export async function createUser(req: Request<unknown, unknown, CreateUserInput>, res: Response): Promise<void> {
+  const user = await usersService.createUser(req.user!, req.body);
+  res.status(201).json(user);
+}
+
+export async function deleteUser(req: Request<{ id: string }>, res: Response): Promise<void> {
+  await usersService.deleteUser(req.user!, req.params.id);
+  res.status(204).send();
 }
 
 export async function removeAvatar(req: Request, res: Response): Promise<void> {
