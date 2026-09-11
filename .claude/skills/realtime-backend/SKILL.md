@@ -31,7 +31,8 @@ src/
   middleware/    auth, validate, rate-limit, metrics, error
   websocket/     connection.manager, room.manager, event.router, event.types, heartbeat, websocket.server
   redis/         pub-sub.ts, presence.ts, rate-limit.ts
-  modules/       one folder per feature: auth, chat, notifications, dashboard, tracking, calling, collaboration, push
+  modules/       one folder per feature: auth, users, chat, notifications, dashboard, tracking, calling, collaboration,
+                 push, announcements, livestream, tasks
                  each module owns its *.service.ts (Prisma queries), *.schemas.ts (Zod),
                  *.handler.ts (WS event definitions), and *.controller.ts + *.routes.ts (REST)
   services/      cross-cutting services: auth.service, push-dispatcher.service, push-senders.service, storage.service
@@ -185,6 +186,17 @@ the WS handshake will silently fail cross-origin.
   — this covers register, `POST /api/auth/change-password`, and admin-created
   accounts (`POST /api/users`) today; keep any new password entry point on the
   same schema rather than inventing a separate rule.
+- **Tasks (`modules/tasks/`) are visibility-scoped, not just role-gated**: manager+ can
+  create/edit/delete a task and manage its attachments (enforced via `requireRole('manager')`
+  at the route), but seeing a task, changing its status, and commenting on it all go through
+  `tasksService.assertCanView` instead — manager+ can see every task, a plain `user` only
+  tasks where they're one of the (possibly several) assignees, via the `TaskAssignee` join
+  table. When adding a new task endpoint, decide which of these two checks it needs; don't
+  reach for `requireRole` by default. There's no dedicated WS room for
+  tasks — creation/reassignment/status/comment events all go through
+  `dispatchNotification(...)` with `data.kind: 'task:assigned' | 'task:status-changed' |
+  'task:comment-new'` (same pattern as tracking's `'tracking:shared'`), and the frontend
+  refetches on that marker rather than listening for a task-specific WS event.
 - **User deletion is a soft delete, not a row removal**: `usersService.deleteUser`
   only stamps `User.deletedAt` and revokes refresh tokens. Several relations
   (`Message.sender`, `Call.initiator`, `DocumentVersion.author`,

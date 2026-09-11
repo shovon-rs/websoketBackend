@@ -9,6 +9,7 @@ import { pushRouter } from '../modules/push/push.routes';
 import { usersRouter } from '../modules/users/users.routes';
 import { documentsRouter } from '../modules/collaboration/documents.routes';
 import { announcementsRouter } from '../modules/announcements/announcements.routes';
+import { tasksRouter } from '../modules/tasks/tasks.routes';
 
 export const apiRouter = Router();
 
@@ -22,3 +23,4 @@ apiRouter.use('/push', pushRouter);
 apiRouter.use('/users', usersRouter);
 apiRouter.use('/documents', documentsRouter);
 apiRouter.use('/announcements', announcementsRouter);
+apiRouter.use('/tasks', tasksRouter);

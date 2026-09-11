@@ -77,3 +77,24 @@ export function attachmentUpload(req: Request, res: Response, next: NextFunction
     next();
   });
 }
+
+const MAX_TASK_ATTACHMENTS = 10;
+
+/** Same allowed types/size cap as a single chat attachment, but accepts up to 10 files at once. */
+export function taskAttachmentsUpload(req: Request, res: Response, next: NextFunction): void {
+  attachmentUploader.array('files', MAX_TASK_ATTACHMENTS)(req, res, (err: unknown) => {
+    if (err) {
+      const message =
+        err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE'
+          ? 'Each file must be 20MB or smaller'
+          : err instanceof multer.MulterError && err.code === 'LIMIT_FILE_COUNT'
+            ? `You can attach at most ${MAX_TASK_ATTACHMENTS} files at once`
+            : err instanceof Error
+              ? err.message
+              : 'Invalid upload';
+      res.status(400).json({ error: { code: 'INVALID_UPLOAD', message } });
+      return;
+    }
+    next();
+  });
+}

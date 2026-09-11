@@ -39,6 +39,11 @@ model User {
   liveStreamsBroadcast       LiveStreamSession[]    @relation("LiveBroadcaster")
   liveStreamViewerships      LiveStreamViewer[]     @relation("LiveViewer")
 
+  tasksCreated    Task[]           @relation("TaskCreator")
+  taskAssignments TaskAssignee[]   @relation("TaskAssignee")
+  taskAttachments TaskAttachment[]
+  taskComments    TaskComment[]
+
   @@map("users")
 }
 
@@ -330,6 +335,71 @@ model LiveStreamViewer {
   @@index([sessionId])
   @@index([userId])
   @@map("livestream_viewers")
+}
+
+model Task {
+  id          String   @id @default(uuid())
+  title       String
+  description String   @default("")
+  status      String   @default("todo") // 'todo' | 'in_progress' | 'done'
+  creatorId   String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  creator     User             @relation("TaskCreator", fields: [creatorId], references: [id])
+  assignees   TaskAssignee[]
+  attachments TaskAttachment[]
+  comments    TaskComment[]
+
+  @@index([creatorId])
+  @@index([status])
+  @@map("tasks")
+}
+
+model TaskAssignee {
+  id      String   @id @default(uuid())
+  taskId  String
+  userId  String
+  addedAt DateTime @default(now())
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation("TaskAssignee", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, userId])
+  @@index([userId])
+  @@map("task_assignees")
+}
+
+model TaskAttachment {
+  id         String   @id @default(uuid())
+  taskId     String
+  uploaderId String
+  bucket     String
+  key        String
+  mimeType   String
+  size       Int
+  fileName   String
+  createdAt  DateTime @default(now())
+
+  task     Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  uploader User @relation(fields: [uploaderId], references: [id])
+
+  @@index([taskId])
+  @@map("task_attachments")
+}
+
+model TaskComment {
+  id        String   @id @default(uuid())
+  taskId    String
+  authorId  String
+  body      String
+  createdAt DateTime @default(now())
+
+  task   Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  author User @relation(fields: [authorId], references: [id])
+
+  @@index([taskId, createdAt])
+  @@map("task_comments")
 }
 
 model Attachment {

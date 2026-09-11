@@ -215,6 +215,17 @@ The platform uses an **at-least-once** delivery model:
 
 **Core events:** `announcement:new`, `announcement:live`, `livestream-request:new`, `livestream-request:decided`, `live:join`, `live:viewer-joined`, `live:sdp-offer`, `live:sdp-answer`, `live:ice-candidate`, `live:end`
 
+### 7.9 Task Management
+
+- Only `manager`/`admin`/`super_admin` can create, edit, delete a task, or manage its attachments. A task has a title, description, one or more assignees (`assigneeIds`, at least one required), and status (`todo` / `in_progress` / `done`).
+- **Visibility, not just permission, is role-scoped**: manager+ can see and list every task; a plain `user` only sees tasks where they're one of the assignees (`GET /api/tasks`, `GET /api/tasks/:id` both enforce this). This same visibility check — not a separate role check — is what gates status changes and comments too: whoever can see a task can move its status or comment on it, but only manager+ can touch its other fields (including who's assigned).
+- Comments are open to anyone who can see the task (no role restriction beyond visibility) — a straightforward space for the assignees and manager+ to communicate on the task.
+- Attachments reuse the platform's existing S3/MinIO storage layer, support multiple files per upload (up to 10 at once, same per-file type/size limits as chat attachments), and are deleted from storage when removed or when the task itself is deleted.
+- There's no dedicated real-time channel for tasks — task creation, reassignment, status changes, and new comments all go through the existing Push Notification Dispatcher (`data.kind: 'task:assigned' | 'task:status-changed' | 'task:comment-new'`, carrying a `taskId`), the same pattern tracking's viewer-sharing already uses (§17). The frontend listens for those exact markers to refetch rather than the platform introducing per-task WebSocket rooms.
+- The task list can be filtered by status (`GET /api/tasks?status=`); filtering by assignee or creator isn't implemented today.
+
+**Core events:** none dedicated — see the notification-based delivery note above.
+
 ---
 
 ## 8. REST API Plan
@@ -248,6 +259,15 @@ The platform uses an **at-least-once** delivery model:
 | GET | `/api/announcements/requests` | List live-stream requests (super_admin) |
 | POST | `/api/announcements/requests/:id/approve` | Approve a request, scheduling the live stream (super_admin) |
 | POST | `/api/announcements/requests/:id/reject` | Reject a request (super_admin) |
+| GET | `/api/tasks` | List tasks visible to the caller (manager+: all; user: assigned-to-them only); supports `?status=` |
+| POST | `/api/tasks` | Create a task (manager+, §7.9) |
+| GET | `/api/tasks/:id` | Task detail, including attachments and comments (visibility-scoped) |
+| PATCH | `/api/tasks/:id` | Edit title/description/assignees (manager+) |
+| PATCH | `/api/tasks/:id/status` | Change status (anyone who can see the task) |
+| DELETE | `/api/tasks/:id` | Delete a task and its attachments (manager+) |
+| POST | `/api/tasks/:id/comments` | Add a comment (anyone who can see the task) |
+| POST | `/api/tasks/:id/attachments` | Upload up to 10 files at once (manager+) |
+| DELETE | `/api/tasks/:id/attachments/:attachmentId` | Remove one attachment (manager+) |
 
 Full API specification is documented in OpenAPI/Swagger format (see `docs/openapi.yaml`).
 
@@ -281,6 +301,10 @@ Full API specification is documented in OpenAPI/Swagger format (see `docs/openap
 | `livestream_requests` | User requests to go live and their review outcome |
 | `livestream_sessions` | Active/past live-stream video sessions |
 | `livestream_viewers` | Best-effort audit trail of who joined a live session (see §18.4) |
+| `tasks` | Task title/description/status, creator (§7.9) |
+| `task_assignees` | Join table — one or more assignees per task |
+| `task_attachments` | File attachments per task, same S3 storage pattern as `attachments` |
+| `task_comments` | Comment thread per task |
 
 PostgreSQL stores all durable records. Redis stores ephemeral connection/presence state and distributes events.
 
