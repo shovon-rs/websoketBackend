@@ -2,7 +2,10 @@ import { Request, Response } from 'express';
 import { v4 as uuid } from 'uuid';
 import * as chatService from './chat.service';
 import * as storageService from '../../services/storage.service';
+import { dispatchNotification } from '../../services/push-dispatcher.service';
+import { prisma } from '../../config/database';
 import { env } from '../../config/env';
+import { AddMembersInput, UpdateConversationInput, UpdateMemberRoleInput } from './chat.schemas';
 
 const EXTENSION_BY_MIME: Record<string, string> = {
   'image/jpeg': 'jpg',
@@ -35,6 +38,65 @@ export async function createConversation(req: Request, res: Response): Promise<v
     name,
   });
   res.status(201).json(conversation);
+}
+
+export async function getConversation(req: Request<{ id: string }>, res: Response): Promise<void> {
+  await chatService.assertMember(req.params.id, req.user!.id);
+  const conversation = await chatService.getConversation(req.params.id);
+  if (!conversation) {
+    res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Conversation not found' } });
+    return;
+  }
+  res.json(conversation);
+}
+
+export async function updateConversation(
+  req: Request<{ id: string }, unknown, UpdateConversationInput>,
+  res: Response,
+): Promise<void> {
+  await chatService.assertAdmin(req.params.id, req.user!.id);
+  const conversation = await chatService.renameConversation(req.params.id, req.body.name);
+  res.json(conversation);
+}
+
+export async function addMembers(req: Request<{ id: string }, unknown, AddMembersInput>, res: Response): Promise<void> {
+  await chatService.assertAdmin(req.params.id, req.user!.id);
+
+  const before = await chatService.getConversation(req.params.id);
+  const existingIds = new Set(before?.members.map((m) => m.userId) ?? []);
+
+  const conversation = await chatService.addMembers(req.params.id, req.body.memberIds);
+  const newlyAdded = conversation!.members.filter((m) => !existingIds.has(m.userId));
+
+  if (newlyAdded.length > 0) {
+    const actor = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id }, select: { displayName: true } });
+    await Promise.all(
+      newlyAdded.map((m) =>
+        dispatchNotification(m.userId, {
+          type: 'info',
+          title: 'Added to a group',
+          body: `${actor.displayName} added you to "${conversation!.name}"`,
+          data: { conversationId: conversation!.id },
+        }),
+      ),
+    );
+  }
+
+  res.status(201).json(conversation);
+}
+
+export async function removeMember(req: Request<{ id: string; userId: string }>, res: Response): Promise<void> {
+  const result = await chatService.removeMember(req.params.id, req.params.userId, req.user!.id);
+  res.json(result);
+}
+
+export async function updateMemberRole(
+  req: Request<{ id: string; userId: string }, unknown, UpdateMemberRoleInput>,
+  res: Response,
+): Promise<void> {
+  await chatService.assertAdmin(req.params.id, req.user!.id);
+  await chatService.updateMemberRole(req.params.id, req.params.userId, req.body.role);
+  res.status(204).send();
 }
 
 export async function getMessages(req: Request, res: Response): Promise<void> {

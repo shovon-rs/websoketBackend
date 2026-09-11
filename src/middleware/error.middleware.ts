@@ -20,6 +20,8 @@ const ERROR_CODE_STATUS: Record<string, number> = {
   NOT_A_MEMBER: 403,
   NOT_FOUND: 404,
   DOCUMENT_NOT_FOUND: 404,
+  NOT_A_GROUP: 400,
+  LAST_ADMIN: 400,
   RATE_LIMITED: 429,
 };
 

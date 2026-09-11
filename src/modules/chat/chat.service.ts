@@ -1,5 +1,12 @@
 import { prisma } from '../../config/database';
 import * as storageService from '../../services/storage.service';
+import { roomManager } from '../../websocket/room.manager';
+import { buildEvent } from '../../types/ws';
+
+const USER_SELECT = { id: true, displayName: true, email: true } as const;
+const MEMBERS_INCLUDE = { members: { include: { user: { select: USER_SELECT } } } } as const;
+
+const conversationRoom = (conversationId: string) => `conversation:${conversationId}`;
 
 export async function assertMember(conversationId: string, userId: string): Promise<void> {
   const member = await prisma.conversationMember.findUnique({
@@ -8,17 +15,34 @@ export async function assertMember(conversationId: string, userId: string): Prom
   if (!member) throw new Error('NOT_A_MEMBER');
 }
 
+/** Only a group's admin may rename it, add/remove members, or change another member's role. */
+export async function assertAdmin(conversationId: string, userId: string): Promise<void> {
+  const member = await prisma.conversationMember.findUnique({
+    where: { conversationId_userId: { conversationId, userId } },
+  });
+  if (!member || member.role !== 'admin') throw new Error('FORBIDDEN');
+}
+
 export async function listConversations(userId: string) {
   return prisma.conversation.findMany({
     where: { members: { some: { userId } } },
     include: {
-      members: { include: { user: { select: { id: true, displayName: true, email: true } } } },
+      members: { include: { user: { select: USER_SELECT } } },
       messages: { orderBy: { createdAt: 'desc' }, take: 1 },
     },
     orderBy: { createdAt: 'desc' },
   });
 }
 
+export async function getConversation(conversationId: string) {
+  return prisma.conversation.findUnique({ where: { id: conversationId }, include: MEMBERS_INCLUDE });
+}
+
+/**
+ * Direct conversations dedupe to the existing 1:1 thread and have no admin concept. A group
+ * conversation always gets exactly one admin at creation time — its creator — mirroring
+ * Messenger/WhatsApp; everyone else joins as a plain member.
+ */
 export async function createConversation(params: { creatorId: string; memberIds: string[]; type: 'direct' | 'group'; name?: string }) {
   const memberIds = [...new Set([params.creatorId, ...params.memberIds])];
 
@@ -28,7 +52,7 @@ export async function createConversation(params: { creatorId: string; memberIds:
         type: 'direct',
         AND: memberIds.map((userId) => ({ members: { some: { userId } } })),
       },
-      include: { members: { include: { user: { select: { id: true, displayName: true, email: true } } } } },
+      include: MEMBERS_INCLUDE,
     });
     if (existing) return existing;
   }
@@ -37,10 +61,115 @@ export async function createConversation(params: { creatorId: string; memberIds:
     data: {
       type: params.type,
       name: params.name,
-      members: { create: memberIds.map((userId) => ({ userId })) },
+      members: {
+        create: memberIds.map((userId) => ({
+          userId,
+          role: params.type === 'group' && userId === params.creatorId ? 'admin' : 'member',
+        })),
+      },
     },
-    include: { members: { include: { user: { select: { id: true, displayName: true, email: true } } } } },
+    include: MEMBERS_INCLUDE,
   });
+}
+
+export async function renameConversation(conversationId: string, name: string) {
+  const conversation = await prisma.conversation.update({
+    where: { id: conversationId },
+    data: { name },
+    include: MEMBERS_INCLUDE,
+  });
+  roomManager.broadcastToRoom(conversationRoom(conversationId), buildEvent('conversation:updated', { conversationId, name }));
+  return conversation;
+}
+
+export async function addMembers(conversationId: string, newMemberIds: string[]) {
+  const conversation = await prisma.conversation.findUnique({ where: { id: conversationId }, include: { members: true } });
+  if (!conversation) throw new Error('NOT_FOUND');
+  if (conversation.type !== 'group') throw new Error('NOT_A_GROUP');
+
+  const existingIds = new Set(conversation.members.map((m) => m.userId));
+  const toAdd = newMemberIds.filter((id) => !existingIds.has(id));
+
+  if (toAdd.length > 0) {
+    await prisma.conversationMember.createMany({ data: toAdd.map((userId) => ({ conversationId, userId, role: 'member' })) });
+  }
+
+  const updated = await getConversation(conversationId);
+  if (toAdd.length > 0) {
+    roomManager.broadcastToRoom(
+      conversationRoom(conversationId),
+      buildEvent('conversation:members-added', {
+        conversationId,
+        members: updated!.members.filter((m) => toAdd.includes(m.userId)),
+      }),
+    );
+  }
+  return updated;
+}
+
+/**
+ * A member may remove only themself (leave); an admin may remove anyone. If that removal
+ * leaves the group with members but no remaining admin, the earliest-joined survivor is
+ * auto-promoted — otherwise the group would become permanently unmanageable, same as
+ * Messenger/WhatsApp's behavior when the sole admin leaves.
+ */
+export async function removeMember(conversationId: string, targetUserId: string, actorId: string) {
+  const conversation = await prisma.conversation.findUnique({ where: { id: conversationId }, include: { members: true } });
+  if (!conversation) throw new Error('NOT_FOUND');
+  if (conversation.type !== 'group') throw new Error('NOT_A_GROUP');
+
+  const actorMember = conversation.members.find((m) => m.userId === actorId);
+  if (!actorMember) throw new Error('FORBIDDEN');
+
+  const isSelfLeaving = targetUserId === actorId;
+  if (!isSelfLeaving && actorMember.role !== 'admin') throw new Error('FORBIDDEN');
+
+  const targetMember = conversation.members.find((m) => m.userId === targetUserId);
+  if (!targetMember) throw new Error('NOT_FOUND');
+
+  await prisma.conversationMember.delete({ where: { conversationId_userId: { conversationId, userId: targetUserId } } });
+
+  const remaining = conversation.members.filter((m) => m.userId !== targetUserId);
+  const hasRemainingAdmin = remaining.some((m) => m.role === 'admin');
+  let promotedAdminId: string | null = null;
+
+  if (remaining.length > 0 && !hasRemainingAdmin) {
+    const nextAdmin = [...remaining].sort((a, b) => a.joinedAt.getTime() - b.joinedAt.getTime())[0];
+    await prisma.conversationMember.update({
+      where: { conversationId_userId: { conversationId, userId: nextAdmin.userId } },
+      data: { role: 'admin' },
+    });
+    promotedAdminId = nextAdmin.userId;
+  }
+
+  roomManager.broadcastToRoom(
+    conversationRoom(conversationId),
+    buildEvent('conversation:member-removed', { conversationId, userId: targetUserId, promotedAdminId }),
+  );
+
+  return { promotedAdminId };
+}
+
+/** Demoting the last remaining admin is refused — a group must always have at least one. */
+export async function updateMemberRole(conversationId: string, targetUserId: string, role: 'admin' | 'member') {
+  const conversation = await prisma.conversation.findUnique({ where: { id: conversationId }, include: { members: true } });
+  if (!conversation) throw new Error('NOT_FOUND');
+  if (conversation.type !== 'group') throw new Error('NOT_A_GROUP');
+
+  const target = conversation.members.find((m) => m.userId === targetUserId);
+  if (!target) throw new Error('NOT_FOUND');
+
+  if (role === 'member' && target.role === 'admin') {
+    const otherAdmins = conversation.members.filter((m) => m.role === 'admin' && m.userId !== targetUserId);
+    if (otherAdmins.length === 0) throw new Error('LAST_ADMIN');
+  }
+
+  await prisma.conversationMember.update({ where: { conversationId_userId: { conversationId, userId: targetUserId } }, data: { role } });
+
+  roomManager.broadcastToRoom(
+    conversationRoom(conversationId),
+    buildEvent('conversation:member-role-changed', { conversationId, userId: targetUserId, role }),
+  );
 }
 
 export async function getMembersWithUser(conversationId: string) {

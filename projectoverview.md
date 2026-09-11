@@ -141,13 +141,22 @@ The platform uses an **at-least-once** delivery model:
 
 ### 7.1 Chat Application
 
-- One-to-one and group conversations
+- One-to-one and group conversations, with file attachments, emoji reactions, and in-thread message search — all implemented, not just planned.
 - Message send/receive and persistence
 - Typing indicators and online/offline presence
 - Delivered/read status and message history
-- Future: attachments (S3), reactions, replies, and search
+- **Group admin (§7.1.1):** creating a group makes its creator the group's admin, mirroring Messenger/WhatsApp.
 
-**Core events:** `chat:join`, `chat:leave`, `message:send`, `message:new`, `message:delivered`, `message:read`, `typing:start`, `typing:stop`
+**Core events:** `chat:join`, `chat:leave`, `message:send`, `message:new`, `typing:start`, `typing:stop` (note: `message:delivered`/`message:read` describe status values on the persisted `Message` row, not separate WS event names — `message:ack` is what a client sends to mark one delivered)
+
+#### 7.1.1 Group Admin
+
+- A conversation's `type` is `'direct'` or `'group'`; only groups have a meaningful admin concept — `ConversationMember.role` (`'admin' | 'member'`) is irrelevant for direct 1:1 threads.
+- Creating a group (`POST /api/conversations` with `type: 'group'`, a `name`, and `memberIds`) makes the creator that group's sole admin; everyone else joins as a plain member.
+- Only an admin may rename the group (`PATCH /api/conversations/:id`), add members (`POST /api/conversations/:id/members`), remove a member (`DELETE /api/conversations/:id/members/:userId`), or promote/demote another member (`PATCH /api/conversations/:id/members/:userId/role`). Any member — admin or not — may remove *themself* via the same delete-member endpoint (leaving the group).
+- Demoting the last remaining admin is refused (`LAST_ADMIN`, 400) — a group must always have at least one admin able to manage it.
+- If the sole admin leaves, the earliest-joined remaining member is auto-promoted rather than leaving the group headless, matching Messenger/WhatsApp's succession behavior.
+- Renames and membership changes broadcast live to everyone currently viewing the conversation (`conversation:updated`, `conversation:members-added`, `conversation:member-removed`, `conversation:member-role-changed`) via the same Redis-backed room broadcast chat messages use (§6). Being newly added additionally sends a persisted/push notification (`dispatchNotification`, `data.conversationId`) so someone not currently in the app still discovers the new group.
 
 ### 7.2 Real-Time Notifications
 
@@ -238,6 +247,12 @@ The platform uses an **at-least-once** delivery model:
 | POST | `/api/auth/change-password` | Change your own password (requires the current password; strong password required) |
 | GET | `/api/users/me` | Current user profile |
 | GET | `/api/conversations` | Conversation list |
+| POST | `/api/conversations` | Create a direct or group conversation (group creator becomes admin, §7.1.1) |
+| GET | `/api/conversations/:id` | Single conversation detail, incl. members and roles |
+| PATCH | `/api/conversations/:id` | Rename a group (admin only) |
+| POST | `/api/conversations/:id/members` | Add members to a group (admin only) |
+| DELETE | `/api/conversations/:id/members/:userId` | Remove a member (admin only) or leave (self) |
+| PATCH | `/api/conversations/:id/members/:userId/role` | Promote/demote a member (admin only) |
 | GET | `/api/conversations/:id/messages` | Message history (paginated, supports `?after=<eventId>` for catch-up) |
 | GET | `/api/notifications` | Notification history |
 | GET | `/api/dashboard/summary` | Initial dashboard snapshot |

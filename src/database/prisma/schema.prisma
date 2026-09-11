@@ -78,6 +78,7 @@ model ConversationMember {
   id             String   @id @default(uuid())
   conversationId String
   userId         String
+  role           String   @default("member") // 'member' | 'admin' — group admin; meaningless for 'direct' conversations
   joinedAt       DateTime @default(now())
   lastReadAt     DateTime?
 

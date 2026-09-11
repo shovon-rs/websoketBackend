@@ -130,6 +130,22 @@ the WS handshake will silently fail cross-origin.
 - **At-least-once delivery for chat**: persist to Postgres *before*
   broadcasting (see `chat.handler.ts`'s `send`); clients ack via
   `message:ack` and catch up via `GET /api/conversations/:id/messages?after=`.
+- **Group chat admin**: `ConversationMember.role` (`'admin' | 'member'`) only
+  means something for `type: 'group'` conversations — a direct 1:1 thread's
+  members are both plain `'member'` and that's never checked. Rename/add
+  member/remove member/change role are gated by `chatService.assertAdmin`
+  (route-level, in `chat.controller.ts`), not `requireRole` — this is a
+  per-conversation permission, unrelated to the platform-wide `user`/`manager`/
+  `admin`/`super_admin` hierarchy in `utils/roles.ts`. Any member (admin or
+  not) can remove *themself* via the same `DELETE .../members/:userId`
+  endpoint — that's how "leave the group" is implemented, there's no separate
+  leave route. `chatService.removeMember`/`updateMemberRole` refuse to leave a
+  group without any admin (auto-promoting the earliest-joined survivor on the
+  sole admin's departure, refusing to demote a lone remaining admin) — don't
+  "simplify" that away, a group with zero admins can never be managed again.
+  Membership/rename changes broadcast via `roomManager.broadcastToRoom` from
+  `chat.service.ts` directly (same idiom as `announcements.service.ts`), not
+  from a WS handler, since these are REST-triggered.
 - **Location privacy**: always round coordinates via `roundCoordinate()` in
   `tracking.service.ts` before persisting. Read/join access to a tracking
   room is gated by `assertCanView` (owner OR a row in `TrackingSessionViewer`
