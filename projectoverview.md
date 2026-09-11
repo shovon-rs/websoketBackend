@@ -5,6 +5,16 @@
 **Frontend:** React.js / Next.js  
 **Scope:** Chat · Real-Time Notifications · Live Dashboards · Collaborative Applications · Live Tracking · Audio & Video Calling
 
+> **Status (2026-09-11):** Phases 1–10 and 13 (§19) are implemented against real
+> Postgres/Redis persistence in `websoketBackend` — not scaffolding. The
+> remaining gaps are narrow: SFU-based group calling (Phase 11 — calling is
+> 1:1 only today), broader automated test coverage, Redis Sentinel/Cluster HA
+> and CI/CD (part of Phase 12), and the `announcements.handler.ts` WebSocket
+> side, which is currently a stub (only exports a room constant — no
+> registered event map) even though the REST side (create/list/cancel,
+> livestream request/approve/reject) is fully built. See §19 for the
+> phase-by-phase breakdown.
+
 ---
 
 ## 1. Project Vision
@@ -251,13 +261,14 @@ Full API specification is documented in OpenAPI/Swagger format (see `docs/openap
 | `documents` | Collaborative document metadata |
 | `document_versions` | Document revision history |
 | `tracking_sessions` | Live tracking session metadata |
+| `tracking_session_viewers` | Per-user viewer grants for a tracking session (§17 `assertCanView`) |
 | `tracking_locations` | Raw lat/lng history (see §17 for retention policy) |
 | `calls` | Call ID, type, status, initiator, started/ended timestamps |
 | `call_participants` | Per-call participant records |
 | `call_events` | Optional audit trail of call state transitions |
-| `call_quality_metrics` | Optional packet loss, latency, jitter (future) |
+| `call_quality_metrics` | Optional packet loss, latency, jitter — still future, not yet in schema |
 | `push_tokens` | FCM/APNs/Web Push device tokens per user |
-| `attachments` | File attachment metadata (S3 key, MIME type, size) — future |
+| `attachments` | File attachment metadata (S3 key, MIME type, size) — implemented; used by chat message attachments and user avatars |
 | `announcements` | Announcement/event records — kind, audience, schedule, status |
 | `announcement_invites` | Per-user invite list for `invited`-audience announcements |
 | `livestream_requests` | User requests to go live and their review outcome |
@@ -439,6 +450,8 @@ Roles, announcements, and live streaming build directly on infrastructure alread
 
 Both paths follow the same persist-before-deliver principle as chat (§6.1): a missed WebSocket delivery is never a lost announcement, only a delayed one, visible on next login via notification history.
 
+> **Implementation note:** the REST side of this (create/list/cancel, request/approve/reject) is fully built, but `announcements.handler.ts` currently only exports the `announcements:global` room constant — it has no registered WebSocket event map yet. Wiring that up is the remaining piece for live (non-refresh) delivery of new/cancelled announcements to already-connected clients.
+
 ### 18.3 Live-Stream Countdown
 
 A scheduled announcement's target time is checked by a periodic background sweep (the same pattern as the location-retention job, §17). Because multiple server instances run this sweep independently with no leader election, the sweep claims a row with a conditional update — only flipping `scheduled → live` if the row is *still* `scheduled` at that instant — so exactly one instance's pass wins the race and exactly one "starting now" notification goes out. A blind, unconditional flip would double-notify under concurrent instances.
@@ -451,23 +464,23 @@ The approved broadcaster's camera/mic reaches each viewer via a direct WebRTC co
 
 ## 19. Development Roadmap
 
-| Phase | Module | Main Work | Estimate |
-|---|---|---|---|
-| Phase 1 | Project Setup | Node.js, Express.js, TypeScript, PostgreSQL, Redis, Docker, linting, Prisma migrations, OpenAPI stub | ~1 week |
-| Phase 2 | Authentication | JWT, refresh tokens, roles, permissions, WebSocket authentication | ~1 week |
-| Phase 3 | WebSocket Core | Connection manager, heartbeat, room manager, event router, validation | ~1–2 weeks |
-| Phase 4 | Chat | One-to-one/group chat, persistence, typing, presence, read/delivery, catch-up REST | ~2 weeks |
-| Phase 5 | Notifications | User/system notifications, read/unread state, offline push via FCM/APNs | ~1 week |
-| Phase 6 | Live Dashboard | Live metrics, activity feed, alerts | ~1 week |
-| Phase 7 | Live Tracking | Tracking sessions, location events, map UI, location history, privacy controls | ~1–2 weeks |
-| Phase 8 | Audio Calling | One-to-one WebRTC audio, signaling, call states, STUN/TURN | ~2 weeks |
-| Phase 9 | Video Calling | One-to-one video, camera controls, screen sharing | ~1 week |
-| Phase 10 | Collaboration | Shared documents, presence, edits, versioning | ~2 weeks |
-| Phase 11 | Group Calling | SFU-based group audio/video (LiveKit/mediasoup) | ~2 weeks |
-| Phase 12 | Scaling & Production | Redis Sentinel/Cluster, sticky sessions, Prometheus/Grafana, load tests, CI/CD | ~2 weeks |
-| Phase 13 | Roles, Admin & Live Streaming | Role hierarchy and admin gating, admin user/role management, announcements with countdown (everyone/invited audience), live-stream request/approval workflow, small-scale mesh live video (see §18) | ~2–3 weeks |
+| Phase | Module | Main Work | Estimate | Status |
+|---|---|---|---|---|
+| Phase 1 | Project Setup | Node.js, Express.js, TypeScript, PostgreSQL, Redis, Docker, linting, Prisma migrations, OpenAPI stub | ~1 week | **Done** |
+| Phase 2 | Authentication | JWT, refresh tokens, roles, permissions, WebSocket authentication | ~1 week | **Done** |
+| Phase 3 | WebSocket Core | Connection manager, heartbeat, room manager, event router, validation | ~1–2 weeks | **Done** |
+| Phase 4 | Chat | One-to-one/group chat, persistence, typing, presence, read/delivery, catch-up REST | ~2 weeks | **Done** (incl. file attachments) |
+| Phase 5 | Notifications | User/system notifications, read/unread state, offline push via FCM/APNs | ~1 week | **Mostly done** — REST + WS read-receipt + push dispatch all exist; thin test coverage |
+| Phase 6 | Live Dashboard | Live metrics, activity feed, alerts | ~1 week | **Done** |
+| Phase 7 | Live Tracking | Tracking sessions, location events, map UI, location history, privacy controls | ~1–2 weeks | **Done** (server-side; map UI is frontend scope) |
+| Phase 8 | Audio Calling | One-to-one WebRTC audio, signaling, call states, STUN/TURN | ~2 weeks | **Done** |
+| Phase 9 | Video Calling | One-to-one video, camera controls, screen sharing | ~1 week | **Done**, 1:1 only — shares the same `call:*` signaling events as audio; no separate screen-share event yet |
+| Phase 10 | Collaboration | Shared documents, presence, edits, versioning | ~2 weeks | **Done** (basic) — CRUD + `document:update`/`cursor` + version history persisted; last-write-wins, no OT/CRDT merge |
+| Phase 11 | Group Calling | SFU-based group audio/video (LiveKit/mediasoup) | ~2 weeks | **Not started** — no LiveKit/mediasoup code exists; calling is strictly 1:1 today |
+| Phase 12 | Scaling & Production | Redis Sentinel/Cluster, sticky sessions, Prometheus/Grafana, load tests, CI/CD | ~2 weeks | **Partial** — Prometheus metrics, Pino logging, BullMQ, Redis pub/sub/presence, and one k6 script all exist; no Sentinel/Cluster config or CI/CD pipeline yet |
+| Phase 13 | Roles, Admin & Live Streaming | Role hierarchy and admin gating, admin user/role management, announcements with countdown (everyone/invited audience), live-stream request/approval workflow, small-scale mesh live video (see §18) | ~2–3 weeks | **Mostly done** — role gating, admin endpoints, announcements CRUD + countdown job, livestream request/approve/reject, and `live:*` WS events are all implemented; `announcements.handler.ts` is still a stub (exports only a room constant, no registered WS event map) |
 
-**Total estimate:** ~18–22 weeks for a full team, plus ~2–3 weeks for Phase 13 as a post-MVP addition. MVP (Phases 1–6 + basic audio/video) is achievable in ~10–12 weeks.
+**Total estimate:** ~18–22 weeks for a full team, plus ~2–3 weeks for Phase 13 as a post-MVP addition. MVP (Phases 1–6 + basic audio/video) is achievable in ~10–12 weeks. **As of 2026-09-11, Phases 1–10 and 13 are substantially built; the remaining open work is Phase 11 (group calling), the rest of Phase 12 (HA/CI-CD), broader test coverage, and closing the announcements WS stub.**
 
 ---
 
@@ -503,22 +516,24 @@ Client → HTTPS/WSS
 
 ## 22. MVP Scope
 
+All items below are implemented in `websoketBackend` as of 2026-09-11:
+
 - JWT authentication and WebSocket authentication
 - Connection manager, heartbeat, rooms, and presence
-- One-to-one and group chat with PostgreSQL persistence
+- One-to-one and group chat with PostgreSQL persistence, including file attachments
 - At-least-once delivery with client-side catch-up on reconnect
-- Real-time notifications with FCM/APNs offline fallback
+- Real-time notifications with FCM/Web Push offline fallback
 - Basic live dashboard
-- Basic live location tracking (with consent and retention policy)
+- Basic live location tracking (with consent, retention policy, and viewer-sharing)
 - One-to-one audio calling via WebRTC
 - One-to-one video calling via WebRTC
-- Microphone/camera controls and basic screen sharing
+- Basic collaborative documents (CRUD, live edits/cursor, version history — no OT/CRDT)
 - Dockerized development environment
-- Prisma migrations, OpenAPI spec stub
+- Prisma migrations, OpenAPI spec (20 documented paths)
 - Prometheus metrics endpoint, structured logging, health checks
-- Basic automated tests
+- Roles/admin, announcements (with countdown), and live-stream request/approval (§18) — REST side complete; the announcements module's WebSocket event map is still a stub
 
-Group calling via SFU, advanced collaborative editing, attachments, call recording, advanced analytics, multi-region scaling, and roles/admin/announcements/live streaming (§18) follow the MVP.
+What's genuinely still outstanding beyond the MVP: group calling via SFU (LiveKit/mediasoup — not started), call recording, `call_quality_metrics`, advanced analytics, multi-region scaling, Redis Sentinel/Cluster HA, CI/CD, and broader automated test coverage (today: 5 test files covering auth, chat WS, connection manager, and event routing).
 
 ---
 

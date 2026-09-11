@@ -53,6 +53,10 @@ function clearRefreshCookie(res: Response): void {
   });
 }
 
+function isMobileClient(req: { get(name: string): string | undefined }): boolean {
+  return req.get('X-Client') === 'mobile';
+}
+
 export async function register(req: Request<unknown, unknown, RegisterInput>, res: Response): Promise<void> {
   const { email, password, displayName } = req.body;
 
@@ -74,7 +78,7 @@ export async function register(req: Request<unknown, unknown, RegisterInput>, re
   const { accessToken, refreshToken } = await issueTokenPair({ id: user.id, email: user.email, role: user.role });
   setRefreshCookie(res, refreshToken);
   logger.info({ userId: user.id }, 'User registered');
-  res.status(201).json({ user: await serializeUser(user), accessToken });
+  res.status(201).json({ user: await serializeUser(user), accessToken, ...(isMobileClient(req) ? { refreshToken } : {}) });
 }
 
 export async function login(req: Request<unknown, unknown, LoginInput>, res: Response): Promise<void> {
@@ -88,11 +92,11 @@ export async function login(req: Request<unknown, unknown, LoginInput>, res: Res
 
   const { accessToken, refreshToken } = await issueTokenPair({ id: user.id, email: user.email, role: user.role });
   setRefreshCookie(res, refreshToken);
-  res.json({ user: await serializeUser(user), accessToken });
+  res.json({ user: await serializeUser(user), accessToken, ...(isMobileClient(req) ? { refreshToken } : {}) });
 }
 
 export async function refresh(req: Request, res: Response): Promise<void> {
-  const existingToken = req.cookies?.[REFRESH_COOKIE_NAME];
+  const existingToken = req.cookies?.[REFRESH_COOKIE_NAME] ?? req.body?.refreshToken;
   if (!existingToken) {
     res.status(401).json({ error: { code: 'MISSING_REFRESH_TOKEN', message: 'No refresh token cookie present' } });
     return;
