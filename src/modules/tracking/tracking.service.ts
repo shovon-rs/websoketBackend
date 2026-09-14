@@ -12,6 +12,7 @@ const USER_SELECT = { id: true, displayName: true, email: true } as const;
 export async function startSession(userId: string) {
   return prisma.trackingSession.create({
     data: { userId, consentAt: new Date() },
+    include: { user: { select: USER_SELECT } },
   });
 }
 
@@ -88,6 +89,18 @@ export async function listOwnedActiveSessions(userId: string) {
 export async function listSharedActiveSessions(userId: string) {
   return prisma.trackingSession.findMany({
     where: { endedAt: null, viewers: { some: { userId } } },
+    include: {
+      user: { select: USER_SELECT },
+      locations: { orderBy: { recordedAt: 'desc' }, take: 1 },
+    },
+    orderBy: { startedAt: 'desc' },
+  });
+}
+
+/** Every currently active session across all users — super_admin "see everyone" view (§16.1). */
+export async function listAllActiveSessions() {
+  return prisma.trackingSession.findMany({
+    where: { endedAt: null },
     include: {
       user: { select: USER_SELECT },
       locations: { orderBy: { recordedAt: 'desc' }, take: 1 },

@@ -16,6 +16,11 @@ export async function listSessions(req: Request, res: Response): Promise<void> {
   res.json({ owned, shared });
 }
 
+export async function listAllSessions(req: Request, res: Response): Promise<void> {
+  const sessions = await trackingService.listAllActiveSessions();
+  res.json({ sessions });
+}
+
 export async function getSession(req: Request, res: Response): Promise<void> {
   await trackingService.assertCanView(req.params.id, req.user!.id);
   const session = await trackingService.getSession(req.params.id);
