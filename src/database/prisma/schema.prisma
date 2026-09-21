@@ -30,6 +30,8 @@ model User {
   initiatedCalls       Call[]                @relation("CallInitiator")
   callParticipants     CallParticipant[]
   documentVersions     DocumentVersion[]
+  documentsOwned          Document[]             @relation("DocumentOwner")
+  documentCollaborations DocumentCollaborator[] @relation("DocumentCollaborator")
 
   announcementsAuthored      Announcement[]        @relation("AnnouncementAuthor")
   announcementsBroadcasting  Announcement[]        @relation("AnnouncementBroadcaster")
@@ -130,23 +132,44 @@ model Notification {
 }
 
 model Document {
-  id        String   @id @default(uuid())
-  ownerId   String
-  title     String
-  content   String   @default("")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         String   @id @default(uuid())
+  ownerId    String
+  title      String
+  state      Bytes
+  visibility String   @default("private") // 'private' | 'public' — public means any authenticated user can view (read-only unless also a collaborator/owner)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
-  versions DocumentVersion[]
+  owner         User                   @relation("DocumentOwner", fields: [ownerId], references: [id])
+  collaborators DocumentCollaborator[]
+  versions      DocumentVersion[]
 
+  @@index([ownerId])
   @@map("documents")
+}
+
+model DocumentCollaborator {
+  id         String   @id @default(uuid())
+  documentId String
+  userId     String
+  role       String   @default("editor") // 'editor' | 'viewer'
+  addedAt    DateTime @default(now())
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  user     User     @relation("DocumentCollaborator", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, userId])
+  @@index([userId])
+  @@map("document_collaborators")
 }
 
 model DocumentVersion {
   id         String   @id @default(uuid())
   documentId String
   authorId   String
-  content    String
+  title      String
+  html       String   // rendered HTML snapshot, sent by the client at save time (backend never renders Yjs to HTML itself)
+  state      Bytes    // full Yjs state snapshot at this point, for true restore
   createdAt  DateTime @default(now())
 
   document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
