@@ -43,6 +43,11 @@ model User {
   taskAssignments TaskAssignee[]   @relation("TaskAssignee")
   taskAttachments TaskAttachment[]
   taskComments    TaskComment[]
+  taskAssignmentEventsReceived TaskAssignmentEvent[] @relation("TaskAssignmentEventUser")
+  taskAssignmentEventsActed    TaskAssignmentEvent[] @relation("TaskAssignmentEventActor")
+
+  projectsCreated    Project[]       @relation("ProjectCreator")
+  projectMemberships ProjectMember[] @relation("ProjectMember")
 
   @@map("users")
 }
@@ -339,22 +344,96 @@ model LiveStreamViewer {
 }
 
 model Task {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   title       String
+  description String    @default("")
+  status      String    @default("todo") // 'todo' | 'in_progress' | 'done'
+  creatorId   String
+  projectId   String?
+  sectionId   String?
+  dueDate     DateTime?
+  startDate   DateTime?
+  priority    String    @default("medium") // 'low' | 'medium' | 'high' | 'urgent'
+  order       Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  creator     User             @relation("TaskCreator", fields: [creatorId], references: [id])
+  project     Project?         @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  section     Section?         @relation(fields: [sectionId], references: [id], onDelete: SetNull)
+  assignees        TaskAssignee[]
+  attachments      TaskAttachment[]
+  comments         TaskComment[]
+  assignmentEvents TaskAssignmentEvent[]
+
+  @@index([creatorId])
+  @@index([status])
+  @@index([projectId])
+  @@index([dueDate])
+  @@map("tasks")
+}
+
+model TaskAssignmentEvent {
+  id        String   @id @default(uuid())
+  taskId    String
+  userId    String // the assignee added or removed
+  actorId   String // who made the change
+  action    String // 'assigned' | 'unassigned'
+  createdAt DateTime @default(now())
+
+  task  Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user  User @relation("TaskAssignmentEventUser", fields: [userId], references: [id], onDelete: Cascade)
+  actor User @relation("TaskAssignmentEventActor", fields: [actorId], references: [id], onDelete: Cascade)
+
+  @@index([taskId, createdAt])
+  @@map("task_assignment_events")
+}
+
+model Project {
+  id          String   @id @default(uuid())
+  name        String
   description String   @default("")
-  status      String   @default("todo") // 'todo' | 'in_progress' | 'done'
+  color       String   @default("#2f6f4f")
   creatorId   String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  creator     User             @relation("TaskCreator", fields: [creatorId], references: [id])
-  assignees   TaskAssignee[]
-  attachments TaskAttachment[]
-  comments    TaskComment[]
+  creator  User            @relation("ProjectCreator", fields: [creatorId], references: [id])
+  members  ProjectMember[]
+  sections Section[]
+  tasks    Task[]
 
   @@index([creatorId])
-  @@index([status])
-  @@map("tasks")
+  @@map("projects")
+}
+
+model ProjectMember {
+  id        String   @id @default(uuid())
+  projectId String
+  userId    String
+  role      String   @default("member") // 'admin' | 'member'
+  addedAt   DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation("ProjectMember", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+  @@index([userId])
+  @@map("project_members")
+}
+
+model Section {
+  id        String   @id @default(uuid())
+  projectId String
+  name      String
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tasks   Task[]
+
+  @@index([projectId])
+  @@map("sections")
 }
 
 model TaskAssignee {

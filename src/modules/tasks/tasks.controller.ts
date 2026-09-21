@@ -9,6 +9,7 @@ import {
   CreateTaskCommentInput,
   CreateTaskInput,
   UpdateTaskInput,
+  UpdateTaskOrderInput,
   UpdateTaskStatusInput,
 } from './tasks.schemas';
 
@@ -66,7 +67,14 @@ export async function createTask(req: Request<unknown, unknown, CreateTaskInput>
 export async function listTasks(req: Request, res: Response): Promise<void> {
   const rawStatus = typeof req.query.status === 'string' ? req.query.status : undefined;
   const status = (['todo', 'in_progress', 'done'] as const).find((s) => s === rawStatus);
-  const tasks = await tasksService.listTasks(req.user!, status);
+  const projectId = typeof req.query.projectId === 'string' ? req.query.projectId : undefined;
+
+  const rawFrom = typeof req.query.from === 'string' ? new Date(req.query.from) : undefined;
+  const from = rawFrom && !Number.isNaN(rawFrom.getTime()) ? rawFrom : undefined;
+  const rawTo = typeof req.query.to === 'string' ? new Date(req.query.to) : undefined;
+  const to = rawTo && !Number.isNaN(rawTo.getTime()) ? rawTo : undefined;
+
+  const tasks = await tasksService.listTasks(req.user!, { status, projectId, from, to });
   res.json({ tasks });
 }
 
@@ -77,7 +85,7 @@ export async function getTask(req: Request<{ id: string }>, res: Response): Prom
 
 export async function updateTask(req: Request<{ id: string }, unknown, UpdateTaskInput>, res: Response): Promise<void> {
   const previousAssigneeIds = req.body.assigneeIds ? await tasksService.getAssigneeIds(req.params.id) : [];
-  const task = await tasksService.updateTask(req.params.id, req.body);
+  const task = await tasksService.updateTask(req.user!, req.params.id, req.body);
 
   if (req.body.assigneeIds) {
     const newlyAssigned = task.assignees.filter((a) => !previousAssigneeIds.includes(a.id)).map((a) => a.id);
@@ -114,8 +122,13 @@ export async function updateStatus(req: Request<{ id: string }, unknown, UpdateT
 }
 
 export async function deleteTask(req: Request<{ id: string }>, res: Response): Promise<void> {
-  await tasksService.deleteTask(req.params.id);
+  await tasksService.deleteTask(req.user!, req.params.id);
   res.status(204).send();
+}
+
+export async function updateTaskOrder(req: Request<{ id: string }, unknown, UpdateTaskOrderInput>, res: Response): Promise<void> {
+  const task = await tasksService.updateTaskOrder(req.user!, req.params.id, req.body);
+  res.json(task);
 }
 
 export async function addComment(req: Request<{ id: string }, unknown, CreateTaskCommentInput>, res: Response): Promise<void> {
@@ -142,6 +155,10 @@ export async function addComment(req: Request<{ id: string }, unknown, CreateTas
 export async function uploadAttachments(req: Request<{ id: string }>, res: Response): Promise<void> {
   const taskId = req.params.id;
 
+  // Authorize before touching storage so an unauthorized caller can't cause an upload that then
+  // gets rejected — the addAttachments service call below re-checks this too.
+  await tasksService.assertCanMutateExisting(req.user!, taskId);
+
   if (!storageService.isStorageConfigured()) {
     res.status(503).json({ error: { code: 'STORAGE_NOT_CONFIGURED', message: 'File storage is not configured on this server' } });
     return;
@@ -162,7 +179,7 @@ export async function uploadAttachments(req: Request<{ id: string }>, res: Respo
     }),
   );
 
-  const attachments = await tasksService.addAttachments(taskId, req.user!.id, uploaded);
+  const attachments = await tasksService.addAttachments(req.user!, taskId, req.user!.id, uploaded);
   const withUrls = await Promise.all(
     attachments.map(async (a) => ({ ...a, url: await storageService.getDownloadUrl(a.key) })),
   );
@@ -171,6 +188,6 @@ export async function uploadAttachments(req: Request<{ id: string }>, res: Respo
 }
 
 export async function deleteAttachment(req: Request<{ id: string; attachmentId: string }>, res: Response): Promise<void> {
-  await tasksService.deleteAttachment(req.params.id, req.params.attachmentId);
+  await tasksService.deleteAttachment(req.user!, req.params.id, req.params.attachmentId);
   res.status(204).send();
 }

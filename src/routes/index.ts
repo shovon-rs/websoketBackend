@@ -10,6 +10,7 @@ import { usersRouter } from '../modules/users/users.routes';
 import { documentsRouter } from '../modules/collaboration/documents.routes';
 import { announcementsRouter } from '../modules/announcements/announcements.routes';
 import { tasksRouter } from '../modules/tasks/tasks.routes';
+import { projectsRouter } from '../modules/projects/projects.routes';
 
 export const apiRouter = Router();
 
@@ -24,3 +25,4 @@ apiRouter.use('/users', usersRouter);
 apiRouter.use('/documents', documentsRouter);
 apiRouter.use('/announcements', announcementsRouter);
 apiRouter.use('/tasks', tasksRouter);
+apiRouter.use('/projects', projectsRouter);
