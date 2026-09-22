@@ -248,12 +248,18 @@ export async function markDelivered(eventId: string) {
 }
 
 export async function markRead(conversationId: string, userId: string) {
+  const lastReadAt = new Date();
   await prisma.conversationMember.update({
     where: { conversationId_userId: { conversationId, userId } },
-    data: { lastReadAt: new Date() },
+    data: { lastReadAt },
   });
-  return prisma.message.updateMany({
-    where: { conversationId, status: { in: ['sent', 'delivered'] } },
+  await prisma.message.updateMany({
+    where: {
+      conversationId,
+      senderId: { not: userId },
+      status: { in: ['sent', 'delivered'] },
+    },
     data: { status: 'read' },
   });
+  return lastReadAt;
 }

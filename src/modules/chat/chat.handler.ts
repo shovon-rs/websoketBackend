@@ -23,6 +23,7 @@ const sendSchema = z
   .refine((v) => v.content.trim().length > 0 || v.attachmentId, { message: 'EMPTY_MESSAGE' });
 const ackSchema = z.object({ eventId: z.string() });
 const typingSchema = z.object({ conversationId: z.string().uuid() });
+const readSchema = z.object({ conversationId: z.string().uuid() });
 
 const join: EventDefinition<z.infer<typeof joinSchema>> = {
   schema: joinSchema,
@@ -124,6 +125,22 @@ const ack: EventDefinition<z.infer<typeof ackSchema>> = {
   },
 };
 
+const read: EventDefinition<z.infer<typeof readSchema>> = {
+  schema: readSchema,
+  handle: async (conn, payload) => {
+    await chatService.assertMember(payload.conversationId, conn.userId);
+    const lastReadAt = await chatService.markRead(payload.conversationId, conn.userId);
+    roomManager.broadcastToRoom(
+      conversationRoom(payload.conversationId),
+      buildEvent(
+        'message:read',
+        { conversationId: payload.conversationId, userId: conn.userId, lastReadAt },
+        uuid(),
+      ),
+    );
+  },
+};
+
 const typingStart: EventDefinition<z.infer<typeof typingSchema>> = {
   schema: typingSchema,
   handle: async (conn, payload) => {
@@ -149,6 +166,7 @@ export const chatHandlers: Record<string, EventDefinition<any>> = {
   'chat:leave': leave,
   'message:send': send,
   'message:ack': ack,
+  'conversation:read': read,
   'typing:start': typingStart,
   'typing:stop': typingStop,
 };
