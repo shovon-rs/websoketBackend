@@ -370,7 +370,7 @@ model Task {
   id          String    @id @default(uuid())
   title       String
   description String    @default("")
-  status      String    @default("todo") // 'todo' | 'in_progress' | 'done'
+  status      String    @default("new") // 'new' | 'in_progress' | 'ready_for_qa' | 'testing' | 'done'
   creatorId   String
   projectId   String?
   sectionId   String?

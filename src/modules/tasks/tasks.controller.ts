@@ -8,6 +8,7 @@ import { env } from '../../config/env';
 import {
   CreateTaskCommentInput,
   CreateTaskInput,
+  TASK_STATUSES,
   UpdateTaskInput,
   UpdateTaskOrderInput,
   UpdateTaskStatusInput,
@@ -66,7 +67,7 @@ export async function createTask(req: Request<unknown, unknown, CreateTaskInput>
 
 export async function listTasks(req: Request, res: Response): Promise<void> {
   const rawStatus = typeof req.query.status === 'string' ? req.query.status : undefined;
-  const status = (['todo', 'in_progress', 'done'] as const).find((s) => s === rawStatus);
+  const status = TASK_STATUSES.find((s) => s === rawStatus);
   const projectId = typeof req.query.projectId === 'string' ? req.query.projectId : undefined;
 
   const rawFrom = typeof req.query.from === 'string' ? new Date(req.query.from) : undefined;

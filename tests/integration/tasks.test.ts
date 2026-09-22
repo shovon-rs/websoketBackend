@@ -66,7 +66,7 @@ describe('tasks', () => {
       .send({ title: 'Ship the thing', description: 'Details here', assigneeIds: [assignee.id, secondAssignee.id] });
 
     expect(res.status).toBe(201);
-    expect(res.body.status).toBe('todo');
+    expect(res.body.status).toBe('new');
     expect(res.body.assignees.map((a: { id: string }) => a.id).sort()).toEqual([assignee.id, secondAssignee.id].sort());
 
     const taskId = res.body.id as string;
@@ -175,7 +175,7 @@ describe('tasks', () => {
     const b = await request(app)
       .post('/api/tasks')
       .set('Authorization', `Bearer ${manager.accessToken}`)
-      .send({ title: 'Filter B', description: '', assigneeIds: [assignee.id], status: 'todo' });
+      .send({ title: 'Filter B', description: '', assigneeIds: [assignee.id], status: 'new' });
 
     const doneOnly = await request(app)
       .get('/api/tasks?status=done')

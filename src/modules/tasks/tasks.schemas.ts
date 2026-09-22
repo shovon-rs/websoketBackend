@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const TASK_STATUSES = ['todo', 'in_progress', 'done'] as const;
+export const TASK_STATUSES = ['new', 'in_progress', 'ready_for_qa', 'testing', 'done'] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
 export const TASK_PRIORITIES = ['low', 'medium', 'high', 'urgent'] as const;
@@ -20,7 +20,7 @@ export const createTaskSchema = z.object({
   title: z.string().min(1).max(200),
   description: z.string().max(5000).default(''),
   assigneeIds,
-  status: z.enum(TASK_STATUSES).default('todo'),
+  status: z.enum(TASK_STATUSES).default('new'),
   projectId: z.string().min(1).optional(),
   sectionId: z.string().min(1).optional(),
   dueDate: nullableDateTime.optional(),
